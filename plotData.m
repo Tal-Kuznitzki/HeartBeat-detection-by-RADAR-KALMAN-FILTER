@@ -15,7 +15,9 @@
 % Data is loaded, processed and then plotted
 
 %% Init
-
+close all;
+clc; 
+clear ;
 
 addpath(genpath('utils'))
 
@@ -23,7 +25,7 @@ addpath(genpath('utils'))
 %%%% Choose Subject-ID(s) 
 %IDrange = 16; % GDN00XX - simply choose numbers or ranges from 01 to 30
 
-IDrange = 16;
+IDrange = 7;
 %%%% Choose scnerio(s) 
 % possible scenarios are {'Resting' 'Valsalva' 'Apnea' 'TiltUp' 'TiltDown'}
 
@@ -33,7 +35,7 @@ scenarios = {'Resting'};
 
 %%%% Set path to datasets 
 % Datasets can be found on figshare
-path = 'original_code/datasets'; % In this case "datasets" folder is in this scripts folder 
+path = 'project_data'; % In this case "datasets" folder is in this scripts folder 
 
 scrsz = get(groot,'ScreenSize'); % For plotting
 %% Extract and plot the data
@@ -86,9 +88,76 @@ for indx = 1:length(IDrange)
 
 
         [radar_i_fitted,radar_q_fitted] = ellipseCreator(radar_i,radar_q,1); % 1 - plot the ellipses, 0 - no plotting
+
         
-        % Radar
-        [radar_respiration, radar_pulse, radar_heartsound, tfm_respiration] = getVitalSigns(radar_dist, fs_radar, tfm_z0, fs_z0);
+        %signalplotter(ThreeBandFilter(phase_compensated,fs_radar))
+        %heartRateSignal, FsHeart, lowBandSignal, FsLow, highBandSignal, FsHigh =
+        %continue
+        %%  30 sec WINDOW 
+        window_length_s = 30; % 30 seconds as per the paper 
+        samples_per_window = round(window_length_s * fs_radar);
+        overlap = 0;          % You can add overlap (e.g., 50%) for smoother results, but starting with 0 is simpler.
+
+       
+        
+        
+        
+
+%%  distance calculating && plotting : 
+        lambda = 0.0125 ; % 0.0125 in meters, 12.5 in mm 
+
+        radar_distance_from_phase_compensated = phase_compensated .* lambda ./(4*pi) ;
+        %phase reversed by distance
+        phase_from_radar_dist =  radar_dist.*(4*pi)./lambda;
+
+        %phase generated after compensation by us:
+        phase_calc_after_fit = atan( radar_q_fitted./radar_i_fitted) ; 
+        radar_distance_calculated_compensated = phase_calc_after_fit .* lambda ./(4*pi) ;
+
+
+        %cutoff = abs(max(fft(phase_from_radar_dist)))/fs_radar;
+        
+        %phase_simple_calc_filtered = butterworth_low_pass_filter(phase_simple_calc,6,cutoff,fs_radar);
+        %phase_compensated_filtered = butterworth_low_pass_filter(phase_compensated,6,cutoff,fs_radar); 
+
+        %radar_distance_by_me_filtered = phase_simple_calc_filtered .* lambda ./(4*pi) ;
+  
+    
+        %% Bandpass filter
+        f_cutoff_low = 0.05;
+        f_cutoff_high = 0.5;
+        order=4 ;
+        d = designfilt('bandpassiir', ...
+    'FilterOrder', order, ...
+    'HalfPowerFrequency1', f_cutoff_low, ...
+    'HalfPowerFrequency2', f_cutoff_high, ...
+    'SampleRate', fs_radar, ...
+    'DesignMethod', 'butter');
+
+    radar_dist_after_BPF = filtfilt(d, radar_distance_calculated_compensated);
+
+
+
+
+        %% LPF 
+        f_cut = 0.5;            
+        Wn_low = f_cut / (fs_radar/2); 
+        [b_low, a_low] = butter(order, Wn_low, 'low');     
+        %%
+
+        %radar_dist_after_BPF = filtfilt(b_band, a_band, radar_distance_calculated_compensated);
+        radar_dist_after_LPF = filtfilt(b_low, a_low, radar_distance_calculated_compensated);
+       % radar_dist_from_phase_compensated_filtered = ( filtfilt(b_resp, a_resp,radar_distance_from_phase_compensated ) ) .*1000 ;
+       % radar_dist_calc_mm = radar_distance_calculated_compensated.*1000 ; %unfiltered 
+       %radar_dist_resp_filtered_mm = radar_dist_resp_meters .* 1000;
+       %num_zero_crossings = sum(abs(diff(sign(radar_dist_after_BPF))) > 0);
+       % A full respiratory cycle (one breath) corresponds to 2 zero-crossings.
+       %num_breaths = num_zero_crossings / 2.0;          
+
+
+
+
+       [radar_respiration, radar_pulse, radar_heartsound, tfm_respiration] = getVitalSigns(radar_dist, fs_radar, tfm_z0, fs_z0);
         
         % TFM
         if ECG_CHANNEL(IDrange(indx)) == 1
@@ -124,7 +193,155 @@ for indx = 1:length(IDrange)
         time_bp = 1/fs_bp:1/fs_bp:length(tfm_bp)/fs_bp;
         time_z0 = 1/fs_z0:1/fs_z0:length(tfm_z0)/fs_z0;
         time_respiration = 1/fs_z0:1/fs_z0:length(radar_respiration_re)/fs_z0;
+
+        %% resampling
+        %BPF
+        % Resample radar respiration to match tfm respiration
+        respiration_test_BPF = resample(radar_dist_after_BPF,fs_z0,fs_radar);
+        radar_dist_re_BPF = resample(radar_distance_calculated_compensated,fs_z0,fs_radar);
+        if length(respiration_test_BPF) > length(tfm_respiration)
+            respiration_test_BPF = respiration_test_BPF(1:length(tfm_respiration));
+            radar_dist_re_BPF = radar_dist_re_BPF(1:length(tfm_respiration));
+        elseif length(respiration_test_BPF) < length(tfm_respiration)
+            tfm_respiration = tfm_respiration(1:length(respiration_test_BPF));
+        end
+
+        %{
+        T_sec = time_respiration(end) - time_respiration(1);
+        T_min = T_sec / 60.0;
+
+        if T_min > 0
+          respiration_rate_BPM = num_breaths / T_min;
+       else
+          respiration_rate_BPM = 0.0;
+       end
+        %}
+
+        %%
+%% --- NEW SEGMENTED RESPIRATION RATE CALCULATION (Zero Crossing) ---
+% This implements the paper's method of splitting signals into 30s windows.
+window_length_s = 30; 
+% --- Radar Rate Calculation ---
+samples_per_window_radar = round(window_length_s * fs_radar);
+overlap_samples = 0; 
+
+radar_rates_BPM = [];
+radar_rate_time_points = [];
+total_samples_radar = length(radar_dist_after_BPF);
+start_sample = 1;
+
+while start_sample + samples_per_window_radar - 1 <= total_samples_radar
+    end_sample = start_sample + samples_per_window_radar - 1;
+    current_window = radar_dist_after_BPF(start_sample:end_sample);
+    num_zero_crossings = sum(abs(diff(sign(current_window))) > 0);
+    rate_BPM = (num_zero_crossings / 2.0) / (window_length_s / 60.0);
+    
+    radar_rates_BPM = [radar_rates_BPM, rate_BPM];
+    time_s = (start_sample + end_sample) / 2 / fs_radar;
+    radar_rate_time_points = [radar_rate_time_points, time_s];
+    
+    start_sample = start_sample + samples_per_window_radar - overlap_samples;
+end
+
+% Calculate overall mean for summary (Table 1 comparison)
+if ~isempty(radar_rates_BPM)
+     respiration_rate_BPM = mean(radar_rates_BPM);
+else
+     respiration_rate_BPM = 0.0;
+end
+
+% --- TFM Rate Calculation (Applying the same logic) ---
+samples_per_window_tfm = round(window_length_s * fs_z0);
+
+tfm_rates_BPM = [];
+tfm_rate_time_points = [];
+total_samples_tfm = length(tfm_respiration); % Use the TFM signal
+start_sample = 1;
+
+while start_sample + samples_per_window_tfm - 1 <= total_samples_tfm
+    end_sample = start_sample + samples_per_window_tfm - 1;
+    current_window = tfm_respiration(start_sample:end_sample);
+    
+    % The TFM signal (Impedance) is filtered, so ZC is applicable here as well.
+    num_zero_crossings = sum(abs(diff(sign(current_window))) > 0);
+    rate_BPM = (num_zero_crossings / 2.0) / (window_length_s / 60.0);
+    
+    tfm_rates_BPM = [tfm_rates_BPM, rate_BPM];
+    time_s = (start_sample + end_sample) / 2 / fs_z0;
+    tfm_rate_time_points = [tfm_rate_time_points, time_s];
+    
+    start_sample = start_sample + samples_per_window_tfm - overlap_samples;
+end
+
+%% --- NEW PLOT: Radar vs. TFM Aggregated Respiration Rate ---
+
+figure('Position',[1 1 scrsz(3) scrsz(4)-80]);
+sgtitle(['Aggregated Respiration Rate Comparison (30s Windows) - Subject ' ID ' - ' scenario]);
+
+ax_agg = subplot(1,1,1);
+hold on;
+
+% 1. Plot Radar Respiration Rate
+plot(radar_rate_time_points, radar_rates_BPM, 'b-o', 'DisplayName', 'Radar Rate (ZC, 30s)');
+
+% 2. Plot TFM Respiration Rate
+plot(tfm_rate_time_points, tfm_rates_BPM, 'r-x', 'DisplayName', 'TFM Rate (ZC, 30s Reference)');
+
+title('Radar vs. TFM Respiration Rate over Time (30s Segments)');
+ylabel('Respiration Rate (Breaths Per Minute - BrPM)');
+xlabel('Time (s)');
+legend('show');
+grid on;
+if exist('time_radar','var')
+    xlim([time_radar(1) time_radar(end)]);
+end
+
+
+
+        %%
+        %%RMSE CALC
+        % RMSE Calculation Between Two Vectors
+        rmse = sqrt(mean((radar_rates_BPM - tfm_rates_BPM).^2));
+        fprintf('RMSE = %.4f\n', rmse);
+
         
+
+
+
+
+
+
+        %LPF
+        % Resample radar respiration to match tfm respiration
+        respiration_test_LPF = resample(radar_dist_after_LPF,fs_z0,fs_radar);
+        radar_dist_re_LPF = resample(radar_distance_calculated_compensated,fs_z0,fs_radar);
+        if length(respiration_test_LPF) > length(tfm_respiration)
+            respiration_test_LPF = respiration_test_LPF(1:length(tfm_respiration));
+            radar_dist_re_LPF = radar_dist_re_LPF(1:length(tfm_respiration));
+        elseif length(respiration_test_LPF) < length(tfm_respiration)
+            tfm_respiration = tfm_respiration(1:length(respiration_test_LPF));
+        end
+
+
+        %%
+        %respiration plotting
+  
+        figure('Position',[1 1 scrsz(3) scrsz(4)-80]);
+        ax2(1) = subplot(1,1,1);
+        hold on;
+
+        plot(time_respiration, radar_respiration_re.*1000, 'k-', 'DisplayName', 'Radar Respiration');
+        plot(time_respiration, tfm_respiration, 'r-', 'DisplayName', 'TFM Respiration');
+        plot(time_respiration, respiration_test_BPF.*1000, 'b-', 'DisplayName', 'test_BPF Respiration');
+        plot(time_respiration, respiration_test_LPF.*1000, 'g-', 'DisplayName', 'test_LPF Respiration');
+        
+        hold off;
+        title('Compare respiration');
+        ylabel('Rel. Distance(mm)');
+        xlabel('Time(s)');
+        legend('show');
+        grid on;
+
         %% Plot all data
         figure('Position',[1 1 scrsz(3) scrsz(4)-80]);
         ax(1) = subplot(4,1,1);
@@ -186,13 +403,6 @@ for indx = 1:length(IDrange)
         linkaxes(ax2,'x');
         xlim([time_radar(1) time_radar(end)]);
         
-        %%
-        %%% my addition:
-        %[radar_i_compensated,radar_q_compensated,phase_compensated
-
-
-        %compensated b
-        % regular r 
         figure('Position',[1 1 scrsz(3) scrsz(4)-80]);
         ax(1) = subplot(5,1,1);
         plot(time_radar,radar_i_compensated,'b');
@@ -227,66 +437,16 @@ for indx = 1:length(IDrange)
         title('phase compensated')
         ylabel('radians');
         xlabel('Time(s)');
-    %{    
-        phase_compensated_simple_calc = atan( radar_q_compensated./radar_i_compensated) ; 
-        
-        %filtering
-        phase_compensated_simple_calc = lowpass(phase_compensated_simple_calc,max(phase_compensated),fs_radar);
- 
-        ax(5) = subplot(5,1,5);
-        plot(time_radar,phase_compensated_simple_calc,'k-')
-        title('phase compensated')
-        ylabel('?');
-        xlabel('Time(s)')        
-    %}
-
         linkaxes(ax,'x');
         xlim([time_radar(1) time_radar(end)]);
 
 
 
 
-%%  distance calculating && plotting : 
-        lambda = 0.0125 ; % 0.0125 in meters, 12.5 in mm 
- 
 
-        %phase reversed by distance
-        phase_from_radar_dist =  radar_dist.*(4*pi)./lambda;
-        %phase generated by me - after compensation by me 
-        phase_calc_after_fit = atan( radar_q_fitted./radar_i_fitted) ; 
-        radar_distance_by_me_compensated = phase_calc_after_fit .* lambda ./(4*pi) ;
-
-        radar_distance_from_phase_compensated = phase_compensated .* lambda ./(4*pi) ;
-
-        cutoff = abs(max(fft(phase_from_radar_dist)))/fs_radar;
-        
-        %phase_simple_calc_filtered = butterworth_low_pass_filter(phase_simple_calc,6,cutoff,fs_radar);
-        %phase_compensated_filtered = butterworth_low_pass_filter(phase_compensated,6,cutoff,fs_radar); 
-
-        %radar_distance_by_me_filtered = phase_simple_calc_filtered .* lambda ./(4*pi) ;
-    
-        %compensated calc
-
-
-        f_low_resp  = 0.1; 
-        f_high_resp = 0.5;
-        Wn_resp = [f_low_resp, f_high_resp] .* 2 / fs_radar;
-        order=2;
-        [b_resp, a_resp] = butter(order, Wn_resp, 'bandpass');
-        radar_dist_resp_meters = filtfilt(b_resp, a_resp, radar_distance_by_me_compensated);
-
-
-        radar_dist_from_phase_compensated_filtered = ( filtfilt(b_resp, a_resp,radar_distance_from_phase_compensated ) ) .*1000 ;
-
-        %radar_dist_resp_meters = bandpass(radar_distance_by_me_compensated,[f_low_resp , f_high_resp],fs_radar);
-
-
-        radar_dist_calc_mm = radar_distance_by_me_compensated.*1000 ; %unfiltered 
-        radar_dist_resp_filtered_mm = radar_dist_resp_meters .* 1000;
-
-
-            
+       %{     
         %% DISTANCES :
+        
         figure('Position',[1 1 scrsz(3) scrsz(4)-80]);
         ax(1) = subplot(5,1,1);
         plot(time_radar,radar_dist.*1000,'k-');
@@ -294,10 +454,10 @@ for indx = 1:length(IDrange)
         ylabel('Rel. Distance(mm)');
         % xlabel('Time(s)')
 
-        ax(2) = subplot(5,1,2);
-        plot(time_radar,radar_dist_resp_filtered_mm,'b');
-        title('Radar distance compensation and filtered by me');
-        ylabel('Rel. Distance(mm)');
+     %   ax(2) = subplot(5,1,2);
+     %   plot(time_radar,radar_dist_resp_filtered_mm,'b');
+     %   title('Radar distance compensation and filtered by me');
+     %   ylabel('Rel. Distance(mm)');
         % xlabel('Time(s)')
 
         ax(3) = subplot(5,1,3);
@@ -353,17 +513,21 @@ for indx = 1:length(IDrange)
       %  title('FREQUENCY RESPONSE OF PHASE');
        % ylabel('Amplitude');
       %  xlabel('omega');
+       %}
 
 
 %%plotting radar_distance and heartrate       
-        %figure('Name', 'Correlation Visualizations');
-        %sgtitle('Correlation of radar distance with heartrate');
-        %subplot(1, 1, 1);
-        %scatter(radar_dist, radar_heartsound, 5, 'filled'); % 5 is the marker size
-        %title(['radar_ distance vs. heartrate (R = ', num2str( corr(radar_dist, radar_heartsound) , '%.3f'), ')']);
-        %xlabel('radar dist');
-        %ylabel('radar heartsound');
-        %grid on;
+        figure('Name', 'Correlation Visualizations');
+        sgtitle(' radar distance heartrate');
+        subplot(1, 1, 1);
+        plot(time_radar,radar_dist_after_LPF.*1000,'r')
+        hold on
+        plot(time_radar,radar_heartsound.*10^6,'b')
+        title(['radar_ distance and heartsound ']);
+        xlabel('radar dist');
+        ylabel('radar heartsound');
+        grid on;
+        legend('radar_dist_after_LPF' ,'radar_heartsound' );
 
 
 
