@@ -1,5 +1,7 @@
 % this is our main file for the project, from here 
 
+% <<<<<<< HEAD
+% =======
 close all;
 clc; 
 clear ;
@@ -249,4 +251,4 @@ for indx = 1:length(IDrange)
             grid on;
     end
 end    
->>>>>>> e86559d9519dfda361a3eb8397ac0f963fae3af5
+%>>>>>>> e86559d9519dfda361a3eb8397ac0f963fae3af5
