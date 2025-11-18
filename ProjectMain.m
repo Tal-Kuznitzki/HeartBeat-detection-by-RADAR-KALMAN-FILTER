@@ -1,8 +1,8 @@
+
+% this is our main file for the project, from here 
 % this is our main file for the project, from here 
 
-% <<<<<<< HEAD
-% =======
-close all;
+%close all;
 clc; 
 clear ;
 
@@ -11,7 +11,7 @@ IDrange = 1;   % GDN00XX - simply choose numbers or ranges from 01 to 30
 scenarios = {'Resting'}; %scenarios = {'Resting' 'Valsalva' 'Apnea' 'TiltUp' 'TiltDown'};
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; % In this case "datasets" folder is in this scripts folder 
-b_USE_PAPER_DATA=false;
+b_USE_PAPER_DATA=true;
 
 
 
@@ -157,6 +157,17 @@ for indx = 1:length(IDrange)
         end
 
 
+        %%BPF FOR HR
+       if  b_USE_PAPER_DATA
+             radar_dist_after_BPF_HR = HPF_05(radar_dist,fs_radar);
+       else 
+            radar_dist_after_BPF_HR = HPF_05(radar_distance_calculated_compensated,fs_radar);
+       end
+
+
+      
+
+
 
         %% Respiration Rate calculation
         %% TODO go over understand the process 
@@ -249,6 +260,20 @@ for indx = 1:length(IDrange)
             xlabel('Time(s)');
             legend('show');
             grid on;
+
+
+             %Heartrate 
+            figure('Position',[1 1 scrsz(3) scrsz(4)-80]);
+            ax2(1) = subplot(1,1,1);
+            hold on;
+    
+            plot(time_radar, radar_dist_after_BPF_HR.*1000, 'k-', 'DisplayName', 'Radar after BPF for HR');
+            plot(time_ecg, tfm_ecg, 'r-', 'DisplayName', 'TFM ecg');
+            hold off;
+            title('Compare HR');
+            ylabel('Rel. Distance(mm)');
+            xlabel('Time(s)');
+            legend('show');
+            grid on;
     end
 end    
-%>>>>>>> e86559d9519dfda361a3eb8397ac0f963fae3af5
