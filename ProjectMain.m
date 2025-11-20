@@ -83,7 +83,7 @@ for indx = 1:length(IDrange)
         time_bp = 1/fs_bp:1/fs_bp:length(tfm_bp)/fs_bp;
         time_z0 = 1/fs_z0:1/fs_z0:length(tfm_z0)/fs_z0;
         time_respiration = 1/fs_z0:1/fs_z0:length(radar_respiration_re)/fs_z0;
-
+        time_radar_d20=decimate(time_radar,20);
 
 
 
@@ -159,7 +159,7 @@ for indx = 1:length(IDrange)
 
         %%BPF FOR HR
        if  b_USE_PAPER_DATA
-             radar_dist_after_BPF_HR = HPF_05(radar_dist,fs_radar);
+             radar_dist_after_BPF_HR = HPF_05(decimate(radar_dist,20),fs_radar/20);
        else 
             radar_dist_after_BPF_HR = HPF_05(radar_distance_calculated_compensated,fs_radar);
        end
@@ -267,7 +267,7 @@ for indx = 1:length(IDrange)
             ax2(1) = subplot(1,1,1);
             hold on;
     
-            plot(time_radar, radar_dist_after_BPF_HR.*1000, 'k-', 'DisplayName', 'Radar after BPF for HR');
+            plot(time_radar_d20, radar_dist_after_BPF_HR.*1000, 'k-', 'DisplayName', 'Radar after BPF for HR');
             plot(time_ecg, tfm_ecg, 'r-', 'DisplayName', 'TFM ecg');
             hold off;
             title('Compare HR');

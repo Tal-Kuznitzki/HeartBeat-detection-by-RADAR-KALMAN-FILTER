@@ -1,7 +1,20 @@
 function [vOutput] = HPF_05(vSignal, fs)
 
-pf_05 = designfilt('highpassfir','FilterOrder',30,...
-        'PassbandFrequency',0.5,'PassbandRipple',0.01, ...
-        'SampleRate',fs);
+d = designfilt('highpassiir',...
+        'StopbandFrequency', 0.4,...
+        'PassbandFrequency',0.6,'StopbandAttenuation',60, ...
+        'SampleRate',fs,'DesignMethod',       'ellip');
 
-vOutput=filtfilt(pf_05,vSignal);
+[b,a] = tf(d);   % returns numerator b and denominator a
+b=b(:);
+a=a(:);
+
+% assume b,a are from tf(d)
+fprintf('max abs coeff b=%g, a=%g\n', max(abs(b)), max(abs(a)));
+p = roots(a);
+fprintf('max pole mag = %g\n', max(abs(p)));
+
+y = filter(b, a, vSignal);
+
+
+vOutput=y;
