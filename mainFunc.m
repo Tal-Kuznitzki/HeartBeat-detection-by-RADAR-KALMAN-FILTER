@@ -73,7 +73,10 @@ for indx = 1:length(IDrange)
             tfm_ecg = fillmissing(tfm_ecg2,'constant',0); % Sometimes ECG is NaN -> set all occurrences to 0
         end
         tfm_ecg = filtButter(tfm_ecg,fs_ecg,4,[1 20],'bandpass');
-
+        
+        time_respiration = 1/fs_z0:1/fs_z0:length(tfm_respiration)/fs_z0;
+        time_ecg = 1/fs_ecg:1/fs_ecg:length(tfm_ecg)/fs_ecg;
+        
 
 %% 4. initial Radar processing- I-Q into a distance vector
 % currently use thier radar_dist
@@ -83,7 +86,7 @@ vTimeFs= 1/fs_radar:1/fs_radar:length(radar_dist)/fs_radar;
 
 % filter & decimate signal and get a time vector
 radar_dist_RsFs=decimate(radar_dist,fs_radar/resampleFS);
-vTimeResample=decimate(time_radar,20);
+vTimeResample=decimate(vTimeFs,20);
 % filter heart rate 
 vHeartSignal=HPF_05(radar_dist_RsFs,resampleFS);
 % filter respiration rate
@@ -96,11 +99,9 @@ if(b_plot_ALL)
             ax2(1) = subplot(1,1,1);
             hold on;
 
-            plot(vTimeResample, vRrSignal.*1000, 'k-', 'DisplayName', 'Radar Respiration');
+            plot(vTimeResample, vRrSignal.*1000, 'g-', 'DisplayName', 'Radar Respiration');
             plot(time_respiration, tfm_respiration, 'r-', 'DisplayName', 'TFM Respiration');
-            plot(time_respiration, respiration_test_BPF.*1000, 'b-', 'DisplayName', 'test BPF Respiration');
-            plot(time_respiration, respiration_test_LPF.*1000, 'g-', 'DisplayName', 'test LPF Respiration');
-
+            
             hold off;
             title('Compare respiration');
             ylabel('Rel. Distance(mm)');
@@ -114,7 +115,7 @@ if(b_plot_ALL)
             ax2(1) = subplot(1,1,1);
             hold on;
     
-            plot(vTimeResample, vHeartSignal.*1000, 'k-', 'DisplayName', 'Radar after BPF for HR');
+            plot(vTimeResample, vHeartSignal.*1000, 'g-', 'DisplayName', 'Radar after BPF for HR');
             plot(time_ecg, tfm_ecg, 'r-', 'DisplayName', 'TFM ecg');
             hold off;
             title('Compare HR');
