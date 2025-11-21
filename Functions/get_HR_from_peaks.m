@@ -1,5 +1,5 @@
 function [vOutput] = get_HR_from_peaks(vSignal, fs)
 
-[pks,locs,widths,proms] = findpeaks(vSignal, fs,"MinPeakHeight",0.15*1000);
+[pks,locs,widths,proms] = findpeaks(vSignal, fs,"MinPeakHeight",0.15);
 
 vOutput=mean(diff(locs));

@@ -136,8 +136,32 @@ if(b_plot_ALL)
 end
 
 %% 6. time analysis to gather data
+windowSeconds=10;
+%1 with find peaks:
+tic;
+[vHrPeaks,vTimeHrPeaks] = movingWindowHR(vHeartSignalBand,fs_radar/resampleFS,windowSeconds,0,1);
+toc
+%2 with correlation:
+tic
+[vHrCorr,vTimeHrCorr] = movingWindowHR(vHeartSignalBand,fs_radar/resampleFS,windowSeconds,1,1);
+toc
+tic
+
+[vHrGT,vTimeHrGT] = movingWindowHR(tfm_ecg,fs_ecg,windowSeconds,1,1);
+toc
 
 
+            figure(5);
+            hold on;
+            plot(vTimeHrPeaks,vHrPeaks, 'g-', 'DisplayName', 'HR every for BPF with find peaks');
+            plot(vTimeHrCorr,vHrCorr, 'b-', 'DisplayName', 'HR every for BPF with find correlation');
+            plot(vTimeHrGT, vHrGT, 'r-', 'DisplayName', 'TFM ecg HR with correlation');
+            hold off;
+            title('Compare HR');
+            ylabel('Rel. Distance(mm)');
+            xlabel('Time(s)');
+            legend('show');
+            grid on;
 %% 7. print our results
 
 %% 8. save results in files (png and mat)
