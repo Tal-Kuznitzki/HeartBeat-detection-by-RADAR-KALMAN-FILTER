@@ -89,6 +89,7 @@ radar_dist_RsFs=decimate(radar_dist,fs_radar/resampleFS);
 vTimeResample=decimate(vTimeFs,20);
 % filter heart rate 
 vHeartSignal=HPF_05(radar_dist_RsFs,resampleFS);
+vHeartSignalBand=BPF_05_3(radar_dist_RsFs,resampleFS);
 % filter respiration rate
 vRrSignal=BPF_005_05(radar_dist_RsFs,resampleFS);
 
@@ -115,8 +116,9 @@ if(b_plot_ALL)
             ax2(1) = subplot(1,1,1);
             hold on;
     
-            plot(vTimeResample, vHeartSignal.*1000, 'g-', 'DisplayName', 'Radar after BPF for HR');
-            plot(time_ecg, tfm_ecg, 'r-', 'DisplayName', 'TFM ecg');
+            plot(vTimeResample, vHeartSignal.*1000, 'g-', 'DisplayName', 'Radar after HPF for HR');
+            plot(vTimeResample, vHeartSignalBand.*1000, 'b-', 'DisplayName', 'Radar after BPF for HR');
+           plot(time_ecg, tfm_ecg, 'r-', 'DisplayName', 'TFM ecg');
             hold off;
             title('Compare HR');
             ylabel('Rel. Distance(mm)');
