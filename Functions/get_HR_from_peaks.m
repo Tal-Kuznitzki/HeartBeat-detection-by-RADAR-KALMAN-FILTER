@@ -1,5 +1,5 @@
 function [vOutput] = get_HR_from_peaks(vSignal, fs)
 
-[pks,locs,widths,proms] = findpeaks(vSignal, fs,"MinPeakHeight",0.15);
+[pks,locs,widths,proms] = findpeaks(vSignal, "MinPeakHeight",max(vSignal)*0.1);
 
-vOutput=mean(diff(locs));
+vOutput = (fs / mean(diff(locs))) * 60; % Convert to beats per minute
