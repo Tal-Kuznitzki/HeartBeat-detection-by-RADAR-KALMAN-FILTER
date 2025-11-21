@@ -88,10 +88,17 @@ vTimeFs= 1/fs_radar:1/fs_radar:length(radar_dist)/fs_radar;
 radar_dist_RsFs=decimate(radar_dist,fs_radar/resampleFS);
 vTimeResample=decimate(vTimeFs,20);
 % filter heart rate 
+tic;
 vHeartSignal=HPF_05(radar_dist_RsFs,resampleFS);
+HPFtoc=toc;
+
+tic;
 vHeartSignalBand=BPF_05_3(radar_dist_RsFs,resampleFS);
+BPFtoc=toc;
 % filter respiration rate
+tic;
 vRrSignal=BPF_005_05(radar_dist_RsFs,resampleFS);
+RRtoc=toc;
 
 
 % optional- plot results:
