@@ -136,7 +136,7 @@ if(b_plot_ALL)
 end
 
 %% 6. time analysis to gather data
-windowSeconds=10;
+windowSeconds=5;
 %1 with find peaks:
 tic;
 [vHrPeaks,vTimeHrPeaks] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,0,1);
@@ -178,13 +178,13 @@ grid on;
 meanCorrVsGt= mean([vHrGT , vHrCorr],2);
 diffCorrVsGt= diff([vHrGT , vHrCorr],1,2);
 %            BlandAltman(vHrGT,vHrCorr,2,0)
-figure(6); %bland altman
-hold on;
-scatter(meanCorrVsGt,diffCorrVsGt,'.');
-vRMseCorrVsGt=sqrt(mean((vHrCorr- vHrGT).^2));
+
+% scatter(meanCorrVsGt,diffCorrVsGt,'.');
+vRMseCorrVsGt=sqrt(mean((vHrCorr- vHrGT).^2))
 [BAmeans,BAdiffs,BAmeanDiff,BACR,BAlinFit]=BlandAltman(vHrGT,vHrCorr,2,0);
 
-[pks,locs,widths,proms] = findpeaks(vHeartSignalBand, "MinPeakHeight",max(vHeartSignalBand)*0.05);
+[pks,locs,widths,proms] = findpeaks(vHeartSignalBand, "MinPeakHeight",...
+        mean(abs((vHeartSignalBand)))*0.05,'MinPeakDistance',0.33*resampleFS);
 figure(7);
 hold on;
 plot(vHeartSignalBand);
