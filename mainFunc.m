@@ -136,7 +136,7 @@ if(b_plot_ALL)
 end
 
 %% 6. time analysis to gather data
-windowSeconds=5;
+windowSeconds=10;
 %1 with find peaks:
 tic;
 [vHrPeaks,vTimeHrPeaks] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,0,1);
@@ -147,7 +147,7 @@ tic
 toc
 tic
 % GT: TODO- try QRS peak finder for better GT
-[vHrGT,vTimeHrGT] = movingWindowHR(tfm_ecg,fs_ecg,windowSeconds,1,1);
+[vHrGT,vTimeHrGT] = movingWindowHR(tfm_ecg,fs_ecg,windowSeconds,0,1);
 toc
 %TODO: consider kalman filter
 %ai: remain casual!
@@ -166,11 +166,22 @@ xlabel('Time(s)');
 legend('show');
 grid on;
 
+
+%print a segment of the radar with the peak finder results:
+
 meanCorrVsGt= mean([vHrGT , vHrCorr],2);
 diffCorrVsGt= diff([vHrGT , vHrCorr],1,2);
 %            BlandAltman(vHrGT,vHrCorr,2,0)
+figure(6);
 scatter(meanCorrVsGt,diffCorrVsGt,'.');
 vRMseCorrVsGt=sqrt(mean((vHrCorr- vHrGT).^2))
+
+[pks,locs,widths,proms] = findpeaks(vHeartSignalBand, "MinPeakHeight",max(vHeartSignalBand)*0.05);
+figure(7);
+hold on;
+plot(vHeartSignalBand);
+plot(locs,pks,'*');
+title('peak finder on decimated radar_dist (Fs 100)');
 
 %% 8. save results in files (png and mat)
 
