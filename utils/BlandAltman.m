@@ -34,7 +34,7 @@ function [means,diffs,meanDiff,CR,linFit] = BlandAltman(var1, var2, flag, flag2)
         flag2 = 0;
     end
     
-    means = mean([var1;var2]);
+    means = mean([var1,var2],2);
     if flag2
         diffs = ((var1-var2)./means).*100;
     else
