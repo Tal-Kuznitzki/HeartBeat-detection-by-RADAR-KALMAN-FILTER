@@ -9,7 +9,6 @@
 % time analysis to gather data
 % print our results
 % save results
-
 %% 1. parameters options and constants:
 IDrange = 1;   % GDN00XX - simply choose numbers or ranges from 01 to 30
 scenarios = {'Resting'}; %scenarios = {'Resting' 'Valsalva' 'Apnea' 'TiltUp' 'TiltDown'};
@@ -22,7 +21,7 @@ scrsz = get(groot,'ScreenSize');
 addpath(genpath('utils'))
 
 
-    %constants
+%constants
 lambda = 0.0125 ;
 
 
@@ -101,6 +100,37 @@ vRrSignal=BPF_005_05(radar_dist_RsFs,resampleFS);
 RRtoc=toc;
 
 
+
+
+%% 6. time analysis to gather data
+windowSeconds=5;
+%1 with find peaks:
+tic;
+[vHrPeaks,vTimeHrPeaks] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,0,1);
+toc
+%2 with correlation:
+tic
+[vHrCorr,vTimeHrCorr] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,1,1);
+toc
+tic
+% GT: TODO- try QRS peak finder for better GT
+[vHrGT,vTimeHrGT] = movingWindowHR(tfm_ecg,fs_ecg,windowSeconds,1,1);
+toc
+
+%with QRS on reference - 
+tic
+[qrs_amp_raw_ref,qrs_i_raw_ref,delay_ref] = pan_tompkin(tfm_ecg,fs_ecg,0); 
+HR_pan_tompkin_reference = (fs_ecg/mean(diff(qrs_i_raw_ref))) * 60
+toc
+
+
+
+%TODO: consider kalman filter
+%ai: remain casual!
+
+
+%% 7. print our results
+
 % optional- plot results:
 if(b_plot_ALL)
      figure('Position',[1 1 scrsz(3) scrsz(4)-80]);
@@ -125,7 +155,7 @@ if(b_plot_ALL)
     
             plot(vTimeResample, vHeartSignal.*1000, 'g-', 'DisplayName', 'Radar after HPF for HR');
             plot(vTimeResample, vHeartSignalBand.*1000, 'b-', 'DisplayName', 'Radar after BPF for HR');
-           plot(time_ecg, tfm_ecg, 'r-', 'DisplayName', 'TFM ecg');
+            plot(time_ecg, tfm_ecg, 'r-', 'DisplayName', 'TFM ecg');
             hold off;
             title('Compare HR');
             ylabel('Rel. Distance(mm)');
@@ -135,33 +165,16 @@ if(b_plot_ALL)
 
 end
 
-%% 6. time analysis to gather data
-windowSeconds=5;
-%1 with find peaks:
-tic;
-[vHrPeaks,vTimeHrPeaks] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,0,1);
-toc
-%2 with correlation:
-tic
-[vHrCorr,vTimeHrCorr] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,1,1);
-toc
-tic
-% GT: TODO- try QRS peak finder for better GT
-[vHrGT,vTimeHrGT] = movingWindowHR(tfm_ecg,fs_ecg,windowSeconds,1,1);
-toc
-%TODO: consider kalman filter
-%ai: remain casual!
 
 
-%% 7. print our results
 figure(5);
 hold on;
 plot(vTimeHrPeaks,vHrPeaks, 'g-', 'DisplayName', 'HR every for BPF with find peaks');
-plot(vTimeHrCorr,vHrCorr, 'b-', 'DisplayName', 'HR every for BPF with find correlation');
-plot(vTimeHrGT, vHrGT, 'r-', 'DisplayName', 'TFM ecg HR with correlation');
+plot(vTimeHrCorr,vHrCorr, 'b-', 'DisplayName', 'HR every for BPF with find peaks and correlation');
+plot(vTimeHrGT, vHrGT, 'r-', 'DisplayName', 'TFM ecg HR with find peaks and correlation');
 hold off;
 title('Compare HR');
-ylabel('Rel. Distance(mm)');
+ylabel('HR(Bpm)');
 xlabel('Time(s)');
 legend('show');
 grid on;
@@ -169,7 +182,7 @@ grid on;
 meanCorrVsGt= mean([vHrGT , vHrCorr],2);
 diffCorrVsGt= diff([vHrGT , vHrCorr],1,2);
 %            BlandAltman(vHrGT,vHrCorr,2,0)
-scatter(meanCorrVsGt,diffCorrVsGt,'.');
+%scatter(meanCorrVsGt,diffCorrVsGt,'.');
 vRMseCorrVsGt=sqrt(mean((vHrCorr- vHrGT).^2))
 
 %% 8. save results in files (png and mat)
