@@ -2,7 +2,7 @@
 %input:
 % signal
 % sample freq
-% b_corr- use xCorr (1) or use find peaks (0)
+% b_corr- use xCorr (1) or use find peaks (0) 2 for QRS gt function
 % step- step size in seconds
 
 %output:
@@ -62,10 +62,13 @@ for k = 1:nWins
 
     % call provided HR estimator
     try
-        if(b_Corr)
+        if(b_Corr==1)
             hr = findHRCorr(winSig, fs);
-        else
+        elseif(b_Corr==0)
             hr = get_HR_from_peaks(winSig, fs);
+        else
+            [~,hr,~] = pan_tompkin(winSig, fs,0);
+            hr=(fs/median(diff(hr))) * 60;
         end
     catch
         hr = NaN;

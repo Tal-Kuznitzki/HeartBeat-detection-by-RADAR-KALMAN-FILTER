@@ -147,8 +147,14 @@ tic
 toc
 tic
 % GT: TODO- try QRS peak finder for better GT
-[vHrGT,vTimeHrGT] = movingWindowHR(tfm_ecg,fs_ecg,windowSeconds,0,1);
+[vHrGT,vTimeHrGT] = movingWindowHR(tfm_ecg,fs_ecg,windowSeconds,2,1);
 toc
+
+% tic
+% [qrs_amp_raw_ref,qrs_i_raw_ref,delay_ref] = pan_tompkin(tfm_ecg,fs_ecg,0); 
+% HR_pan_tompkin_reference = (fs_ecg/median(diff(qrs_i_raw_ref))) * 60;
+% toc
+
 %TODO: consider kalman filter
 %ai: remain casual!
 
@@ -172,9 +178,11 @@ grid on;
 meanCorrVsGt= mean([vHrGT , vHrCorr],2);
 diffCorrVsGt= diff([vHrGT , vHrCorr],1,2);
 %            BlandAltman(vHrGT,vHrCorr,2,0)
-figure(6);
+figure(6); %bland altman
+hold on;
 scatter(meanCorrVsGt,diffCorrVsGt,'.');
-vRMseCorrVsGt=sqrt(mean((vHrCorr- vHrGT).^2))
+vRMseCorrVsGt=sqrt(mean((vHrCorr- vHrGT).^2));
+[BAmeans,BAdiffs,BAmeanDiff,BACR,BAlinFit]=BlandAltman(vHrGT,vHrCorr,2,0);
 
 [pks,locs,widths,proms] = findpeaks(vHeartSignalBand, "MinPeakHeight",max(vHeartSignalBand)*0.05);
 figure(7);
