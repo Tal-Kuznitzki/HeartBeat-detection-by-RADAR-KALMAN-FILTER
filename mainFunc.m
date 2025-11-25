@@ -12,7 +12,7 @@
 
 %% 1. parameters options and constants:
 IDrange = 1;   % GDN00XX - simply choose numbers or ranges from 01 to 30
-scenarios = {'Resting'}; %scenarios = {'Resting' 'Valsalva' 'Apnea' 'TiltUp' 'TiltDown'};
+scenarios = {'Valsalva'}; %scenarios = {'Resting' 'Valsalva' 'Apnea' 'TiltUp' 'TiltDown'};
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; % In this case "datasets" folder is in this scripts folder 
 b_USE_PAPER_DATA=true;
@@ -20,7 +20,7 @@ resampleFS=100; %above 100 may cause issues with iir filters
 b_plot_ALL=0; % turn to 0 to stop plotting checkups
 scrsz = get(groot,'ScreenSize');
 addpath(genpath('utils'))
-windowSeconds=10; % seconds to take each prediction on
+windowSeconds=15; % seconds to take each prediction on
 windowStep=1; %seconds in between HR predictions
 
     %constants
@@ -179,6 +179,10 @@ vRMseCorrVsGt=sqrt(mean((vHrCorr- vHrGT).^2));
 vRMseCorrMaxVsGt=sqrt(mean((vHrCorrMax- vHrGT).^2));
 vRMsePeaksVsGt=sqrt(mean((vHrPeaks- vHrGT).^2));
 
+vMaeCorrVsGt=abs(mean((vHrCorr- vHrGT).^1));
+vMaeCorrMaxVsGt=abs(mean((vHrCorrMax- vHrGT).^1));
+vMaePeaksVsGt=abs(mean((vHrPeaks- vHrGT).^1));
+
 figure(5);
 hold on;
 plot(vTimeHrPeaks,vHrPeaks, 'g-', 'DisplayName',...
@@ -194,7 +198,7 @@ plot(vTimeHrCorrMax,vHrCorrMax, 'y-', 'DisplayName',...
 % not enough resolution for FFT to be viable
 plot(vTimeHrGT, vHrGT, 'r-', 'DisplayName', 'TFM ecg HR Ground Truth');
 hold off;
-title('Compare HR');
+title(sprintf('Compare HR ID: %d , scenario: %s',IDrange(indx),scenario));
 ylabel('Rel. Distance(mm)');
 xlabel('Time(s)');
 legend('show');
@@ -209,7 +213,7 @@ diffCorrVsGt= diff([vHrGT , vHrCorr],1,2);
 
 % scatter(meanCorrVsGt,diffCorrVsGt,'.');
 
-[BAmeans,BAdiffs,BAmeanDiff,BACR,BAlinFit]=BlandAltman(vHrGT,vHrCorr,2,0);
+[BAmeans,BAdiffs,BAmeanDiff,BACR,BAlinFit]=BlandAltman(vHrGT,vHrPeaks,2,0);
 
 [pks,locs,widths,proms] = findpeaks(vHeartSignalBand, "MinPeakHeight",...
         mean(abs((vHeartSignalBand)))*0.05,'MinPeakDistance',0.33*resampleFS);

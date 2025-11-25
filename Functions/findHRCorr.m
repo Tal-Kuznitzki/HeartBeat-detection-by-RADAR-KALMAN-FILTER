@@ -9,7 +9,7 @@ thresh=max(sigCorr)*0.01;
 %3 calculate hr from peaks
 timeLags= diff(locs);
 timeLags = timeLags(timeLags>fs*0.3);
-timeLags = timeLags(timeLags<fs*3);
+timeLags = timeLags(timeLags<fs*2);
 HR = (fs / median(timeLags)) * 60; % Convert to beats per minute
 %HR = (fs / median(diff(locs))) * 60; % Convert to beats per minute
 
