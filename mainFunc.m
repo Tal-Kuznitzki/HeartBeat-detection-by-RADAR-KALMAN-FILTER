@@ -12,7 +12,7 @@
 
 %% 1. parameters options and constants:
 IDrange = 1;   % GDN00XX - simply choose numbers or ranges from 01 to 30
-scenarios = {'Valsalva'}; %scenarios = {'Resting' 'Valsalva' 'Apnea' 'TiltUp' 'TiltDown'};
+scenarios = {'Resting'}; %scenarios = {'Resting' 'Valsalva' 'Apnea' 'TiltUp' 'TiltDown'};
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; % In this case "datasets" folder is in this scripts folder 
 b_USE_PAPER_DATA=true;

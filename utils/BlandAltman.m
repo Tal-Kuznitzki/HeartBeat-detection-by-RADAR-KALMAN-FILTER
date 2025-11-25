@@ -59,9 +59,9 @@ function [means,diffs,meanDiff,CR,linFit] = BlandAltman(var1, var2, flag, flag2)
             ylabel('method A - method B');
         end
         if flag > 1
-            plot(means, ones(1,length(means)).*CR(1),'w-'); %%%plot the upper CR
-            plot(means, ones(1,length(means)).*CR(2),'w-'); %%%plot the lower CR
-            plot(means,ones(1,length(means)).*meanDiff,'w'); %%%plot zero
+            plot(means, ones(1,length(means)).*CR(1),'g-'); %%%plot the upper CR
+            plot(means, ones(1,length(means)).*CR(2),'g-'); %%%plot the lower CR
+            plot(means,ones(1,length(means)).*meanDiff,'g'); %%%plot zero
         end
         if flag > 2
             plot(means, means.*linFit(1)+linFit(2),'Color',[0.8500 0.3250 0.0980]); %%%plot the linear fit
