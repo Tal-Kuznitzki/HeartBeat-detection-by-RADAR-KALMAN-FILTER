@@ -2,7 +2,7 @@
 %input:
 % signal
 % sample freq
-% b_corr- use xCorr (1) or use find peaks (0) 2 for QRS gt function
+% method - use xCorr, find peaks  2 for QRS gt function
 % step- step size in seconds
 
 %output:
@@ -10,14 +10,15 @@
 % a fitting time vector
 
 
-function [hrVec, tVec] = movingWindowHR(x, fs,windowSec, b_Corr, step)
+function [hrVec, tVec] = movingWindowHR(x, fs,windowSec,step, method)
 arguments
     
     x  {mustBeNumeric}    % accept row or column, normalize below
     fs (1,1) {mustBePositive, mustBeFinite}
     windowSec (1,1) {mustBePositive, mustBeFinite}
-    b_Corr {mustBeNumeric}
     step {mustBePositive}
+    method (1,1) string {mustBeMember(method, ["corr","peaks","corrmax","fft","qrs"])} = "corr"
+   
 end
 
 % Ensure column vector
@@ -62,13 +63,17 @@ for k = 1:nWins
 
     % call provided HR estimator
     try
-        if(b_Corr==1)
+        if(method=="corr")
             hr = findHRCorr(winSig, fs);
-        elseif(b_Corr==0)
+        elseif(method=="peaks")
             hr = get_HR_from_peaks(winSig, fs);
-        else
+        elseif(method=="qrs")
             [~,hr,~] = pan_tompkin(winSig, fs,0);
             hr=(fs/median(diff(hr))) * 60;
+        elseif(method=="fft")
+            hr = findHRFft(winSig, fs);
+        else %method is "corrmax"
+            hr = findHRCorrFirstPeak(winSig,fs);
         end
     catch
         hr = NaN;

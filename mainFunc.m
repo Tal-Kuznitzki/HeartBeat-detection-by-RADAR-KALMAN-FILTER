@@ -17,10 +17,11 @@ ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; % In this case "datasets" folder is in this scripts folder 
 b_USE_PAPER_DATA=true;
 resampleFS=100; %above 100 may cause issues with iir filters
-b_plot_ALL=1; % turn to 0 to stop plotting checkups
+b_plot_ALL=0; % turn to 0 to stop plotting checkups
 scrsz = get(groot,'ScreenSize');
 addpath(genpath('utils'))
-
+windowSeconds=10; % seconds to take each prediction on
+windowStep=1; %seconds in between HR predictions
 
     %constants
 lambda = 0.0125 ;
@@ -136,18 +137,31 @@ if(b_plot_ALL)
 end
 
 %% 6. time analysis to gather data
-windowSeconds=5;
+
 %1 with find peaks:
 tic;
-[vHrPeaks,vTimeHrPeaks] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,0,1);
+[vHrPeaks,vTimeHrPeaks] = movingWindowHR(vHeartSignalBand,resampleFS,...
+                                         windowSeconds,windowStep,"peaks");
 toc
 %2 with correlation:
 tic
-[vHrCorr,vTimeHrCorr] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,1,1);
+[vHrCorr,vTimeHrCorr] = movingWindowHR(vHeartSignalBand,resampleFS,...
+                                          windowSeconds,windowStep,"corr");
 toc
 tic
-% GT: TODO- try QRS peak finder for better GT
-[vHrGT,vTimeHrGT] = movingWindowHR(tfm_ecg,fs_ecg,windowSeconds,2,1);
+% GT: QRS peak finder for better GT
+[vHrGT,vTimeHrGT] = movingWindowHR(tfm_ecg,fs_ecg,windowSeconds,...
+                                                         windowStep,"qrs");
+toc
+%2 with correlation first maximum:
+tic
+[vHrCorrMax,vTimeHrCorrMax] = movingWindowHR(vHeartSignalBand,resampleFS,...
+                                       windowSeconds,windowStep,"corrmax");
+toc
+%2 with FFT:
+tic
+[vHrFft,vTimeHrFft] = movingWindowHR(vHeartSignalBand,resampleFS,...
+                                           windowSeconds,windowStep,"fft");
 toc
 
 % tic
@@ -160,11 +174,25 @@ toc
 
 
 %% 7. print our results
+
+vRMseCorrVsGt=sqrt(mean((vHrCorr- vHrGT).^2));
+vRMseCorrMaxVsGt=sqrt(mean((vHrCorrMax- vHrGT).^2));
+vRMsePeaksVsGt=sqrt(mean((vHrPeaks- vHrGT).^2));
+
 figure(5);
 hold on;
-plot(vTimeHrPeaks,vHrPeaks, 'g-', 'DisplayName', 'HR every for BPF with find peaks');
-plot(vTimeHrCorr,vHrCorr, 'b-', 'DisplayName', 'HR every for BPF with find correlation');
-plot(vTimeHrGT, vHrGT, 'r-', 'DisplayName', 'TFM ecg HR with correlation');
+plot(vTimeHrPeaks,vHrPeaks, 'g-', 'DisplayName',...
+    sprintf('HR estimation using find peaks RMSE: %.3f',vRMsePeaksVsGt));
+
+plot(vTimeHrCorr,vHrCorr, 'b-', 'DisplayName',...
+    sprintf('HR estimation with cross correlation RMSE: %.3f',vRMseCorrVsGt));
+
+plot(vTimeHrCorrMax,vHrCorrMax, 'y-', 'DisplayName',...
+    sprintf('HR estimation using xCorr-maximum RMSE: %.3f',vRMseCorrMaxVsGt));
+
+%plot(vTimeHrFft,vHrFft, 'm-', 'DisplayName', 'HR every for BPF with FFT');
+% not enough resolution for FFT to be viable
+plot(vTimeHrGT, vHrGT, 'r-', 'DisplayName', 'TFM ecg HR Ground Truth');
 hold off;
 title('Compare HR');
 ylabel('Rel. Distance(mm)');
@@ -180,7 +208,7 @@ diffCorrVsGt= diff([vHrGT , vHrCorr],1,2);
 %            BlandAltman(vHrGT,vHrCorr,2,0)
 
 % scatter(meanCorrVsGt,diffCorrVsGt,'.');
-vRMseCorrVsGt=sqrt(mean((vHrCorr- vHrGT).^2))
+
 [BAmeans,BAdiffs,BAmeanDiff,BACR,BAlinFit]=BlandAltman(vHrGT,vHrCorr,2,0);
 
 [pks,locs,widths,proms] = findpeaks(vHeartSignalBand, "MinPeakHeight",...
@@ -189,7 +217,10 @@ figure(7);
 hold on;
 plot(vHeartSignalBand);
 plot(locs,pks,'*');
-title('peak finder on decimated radar_dist (Fs 100)');
+ylabel('Rel. Distance(mm)');
+xlabel('samples'); %every 100 samples is a second, and we have 60k samples - so 600 seconds as usual
+title('peak finder on decimated radar dist (Fs 100) after BPF');
+hold off;
 
 %% 8. save results in files (png and mat)
 
