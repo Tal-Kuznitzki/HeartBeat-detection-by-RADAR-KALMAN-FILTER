@@ -177,7 +177,7 @@ thresholdHRbnad= mean(abs((vHeartSignalBand)))*0.05;
         thresholdHRbnad,'MinPeakDistance',0.33*resampleFS);
 toc
 vHrFromPeaks = 60*resampleFS./diff(locsR);
-
+vHrGtPeaks = 60*fs_ecg./diff(qrs_i_raw_ref);
 %TODO: consider kalman filter
 %ai: remain casual!
 
@@ -198,7 +198,24 @@ hold on;
 plot(time_ecg,tfm_ecg,'DisplayName','ECG signal');
 plot(qrs_i_raw_ref/fs_ecg,tfm_ecg(qrs_i_raw_ref),'*','DisplayName','ECG peaks');
 linkaxes
+ylabel('Amp');
+xlabel('Time(s)');
+legend('show');
 grid on;
+hold off;
+
+figure;
+hold on;
+title('Estimated HR using IBI without median');
+hold on;
+plot(vHrFromPeaks,'DisplayName','RADAR HEART RATE');
+
+plot(vHrGtPeaks,'DisplayName','ECG HEART RATE');
+ylabel('Heart Rate (BPM)');
+xlabel('Samples');
+legend('show');
+grid on;
+hold off;
 
 %%%
 vRMseCorrVsGt=sqrt(mean((vHrCorr- vHrGT).^2));
