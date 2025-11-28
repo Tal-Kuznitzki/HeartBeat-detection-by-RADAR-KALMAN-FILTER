@@ -17,7 +17,7 @@ ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; % In this case "datasets" folder is in this scripts folder 
 b_USE_PAPER_DATA=true;
 resampleFS=100; %above 100 may cause issues with iir filters
-b_plot_ALL=0; % turn to 0 to stop plotting checkups
+b_plot_ALL=1; % turn to 0 to stop plotting checkups
 scrsz = get(groot,'ScreenSize');
 addpath(genpath('utils'))
 windowSeconds=15; % seconds to take each prediction on
@@ -87,14 +87,16 @@ vTimeFs= 1/fs_radar:1/fs_radar:length(radar_dist)/fs_radar;
 
 % filter & decimate signal and get a time vector
 radar_dist_RsFs=decimate(radar_dist,fs_radar/resampleFS);
-vTimeResample=decimate(vTimeFs,20);
+vTimeResample=decimate(vTimeFs,fs_radar/resampleFS);
 % filter heart rate 
 tic;
-vHeartSignal=HPF_05(radar_dist_RsFs,resampleFS);
+ vHeartSignal=HPF_05(radar_dist_RsFs,resampleFS);
 HPFtoc=toc;
 
 tic;
-vHeartSignalBand=BPF_05_3(radar_dist_RsFs,resampleFS);
+vHeartSignalBand=HRfir(radar_dist_RsFs,resampleFS);
+% 
+% vHeartSignalBand=BPF_05_3(radar_dist_RsFs,resampleFS);
 BPFtoc=toc;
 % filter respiration rate
 tic;
@@ -164,17 +166,41 @@ tic
                                            windowSeconds,windowStep,"fft");
 toc
 
-% tic
-% [qrs_amp_raw_ref,qrs_i_raw_ref,delay_ref] = pan_tompkin(tfm_ecg,fs_ecg,0); 
-% HR_pan_tompkin_reference = (fs_ecg/median(diff(qrs_i_raw_ref))) * 60;
-% toc
+tic
+[qrs_amp_raw_ref,qrs_i_raw_ref,delay_ref] = pan_tompkin(tfm_ecg,fs_ecg,0); 
+HR_pan_tompkin_reference = (fs_ecg/median(diff(qrs_i_raw_ref))) * 60;
+toc
+% running the find peaks on the whole function. 
+tic
+thresholdHRbnad= mean(abs((vHeartSignalBand)))*0.05;
+[pksR,locsR,widthsR,promsR] = findpeaks(vHeartSignalBand, "MinPeakHeight",...
+        thresholdHRbnad,'MinPeakDistance',0.33*resampleFS);
+toc
+vHrFromPeaks = 60*resampleFS./diff(locsR);
 
 %TODO: consider kalman filter
 %ai: remain casual!
 
 
 %% 7. print our results
+%%% plot both ecg and radar. mark peaks.
+figure;
+subplot(2,1,1)
+title('radar after HR filters, peak finder');
+hold on;
+plot(vTimeResample,vHeartSignalBand*1e4,'DisplayName','filtered signal radar');
+plot(locsR/resampleFS,vHeartSignalBand(locsR)*1e4,'*', 'DisplayName','peaks');
+yline(thresholdHRbnad,'DisplayName','detector threshold');
 
+subplot(2,1,2)
+title('ECG, peak finder')
+hold on;
+plot(time_ecg,tfm_ecg,'DisplayName','ECG signal');
+plot(qrs_i_raw_ref/fs_ecg,tfm_ecg(qrs_i_raw_ref),'*','DisplayName','ECG peaks');
+linkaxes
+grid on;
+
+%%%
 vRMseCorrVsGt=sqrt(mean((vHrCorr- vHrGT).^2));
 vRMseCorrMaxVsGt=sqrt(mean((vHrCorrMax- vHrGT).^2));
 vRMsePeaksVsGt=sqrt(mean((vHrPeaks- vHrGT).^2));
@@ -215,12 +241,10 @@ diffCorrVsGt= diff([vHrGT , vHrCorr],1,2);
 
 [BAmeans,BAdiffs,BAmeanDiff,BACR,BAlinFit]=BlandAltman(vHrGT,vHrPeaks,2,0);
 
-[pks,locs,widths,proms] = findpeaks(vHeartSignalBand, "MinPeakHeight",...
-        mean(abs((vHeartSignalBand)))*0.05,'MinPeakDistance',0.33*resampleFS);
 figure(7);
 hold on;
 plot(vHeartSignalBand);
-plot(locs,pks,'*');
+plot(locsR,pks,'*');
 ylabel('Rel. Distance(mm)');
 xlabel('samples'); %every 100 samples is a second, and we have 60k samples - so 600 seconds as usual
 title('peak finder on decimated radar dist (Fs 100) after BPF');
