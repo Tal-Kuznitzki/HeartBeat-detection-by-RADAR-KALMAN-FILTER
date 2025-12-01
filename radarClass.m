@@ -27,6 +27,7 @@ classdef radarClass
         fs_radar
         fs_new
         
+        % filters?
         
     end
     methods
@@ -70,7 +71,8 @@ classdef radarClass
         end
     end 
     methods(Static)
-        % apply HR filters and make
+        % apply HR filters and make %TODO use outside filter so we wont
+        % designfilt each iteration
         function [] = HrFilter()
             if(isnan(obj.fs_new))
                 obj.fs_new=obj.fs_radar;
@@ -90,7 +92,8 @@ classdef radarClass
         end
 
         %
-        function [] = RrFilter() %currently without highpass. maybe pass through median filter.
+        function [] = RrFilter() %currently without highpass. maybe pass through median filter. %TODO use outside filter so we wont
+        % designfilt each iteration
             if(isnan(obj.fs_new))
                 obj.fs_new=obj.fs_radar;
                 sprintf('warning: signal not yet decimated')
@@ -125,5 +128,12 @@ classdef radarClass
         %
 
         % plotting functions
+        
+        %plot the Hr peaks and the signal
+        function [] = plotHrPeaks()
+            
+        end
     end
 end
+
+

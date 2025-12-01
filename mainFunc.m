@@ -151,7 +151,7 @@ for indx = 1:length(IDrange)
         toc;
         tic;
         [qrs_amp_raw_ref,qrs_i_raw_ref,delay_ref] = pan_tompkin(tfm_ecg,fs_ecg,0); 
-        HR_pan_tompkin_reference = (fs_ecg/median(diff(qrs_i_raw_ref))) * 60;
+        HR_pan_tompkin_reference = (fs_ecg./(diff(qrs_i_raw_ref))) * 60;
         toc;
         tic;
         thresholdHRbnad= mean(abs((vHeartSignalBand)))*0.05; 
