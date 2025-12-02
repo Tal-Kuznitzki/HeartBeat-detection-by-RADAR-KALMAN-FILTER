@@ -19,8 +19,8 @@ if b_CLEAN_START
     close all; 
 end
 
-IDrange = 11:12;   
-scenarios = {'Resting','Valsalva'}; 
+IDrange = 1; %11:12;   
+scenarios = {'Resting'}; 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
@@ -101,22 +101,9 @@ for indx = 1:length(IDrange)
         vRrSignal=BPF_005_05(radar_dist_RsFs,resampleFS);
         RRtoc=toc;
 
-        if(b_plot_ALL)
-             h = figure(); 
-             set(h,'Position',[1 1 scrsz(3) scrsz(4)-80], 'Name', 'Respiration_Comparison');
-             current_figures(end+1) = h; 
-             
-            ax2(1) = subplot(1,1,1);
-            hold on;
-            plot(vTimeResample, vRrSignal.*1000, 'g-', 'DisplayName', 'Radar Respiration');
-            plot(time_respiration, tfm_respiration, 'r-', 'DisplayName', 'TFM Respiration');
-            hold off;
-            title(sprintf('Respiration Signals Comparison - ID: %s, Scenario: %s', ID, scenario));
-            ylabel('Rel. Distance(mm)');
-            xlabel('Time(s)');
-            legend('show');
-            grid on;
-            
+   
+            %old HR filtered_Signals
+           %{
             h = figure(); 
             set(h,'Position',[1 1 scrsz(3) scrsz(4)-80], 'Name', 'HeartRate_Filtered_Signals');
             current_figures(end+1) = h; 
@@ -132,7 +119,8 @@ for indx = 1:length(IDrange)
             xlabel('Time(s)');
             legend('show');
             grid on;
-        end
+           %}
+        
 %% 6. time analysis
         tic;
         [vHrPeaks,vTimeHrPeaks] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"peaks");
@@ -161,6 +149,20 @@ for indx = 1:length(IDrange)
         vHrGtPeaks = 60*fs_ecg./diff(qrs_i_raw_ref);
 
 %% 7. print our results
+        if(b_plot_ALL)   
+        h = figure(); 
+        set(h,'Position',[1 1 scrsz(3) scrsz(4)-80], 'Name', 'Respiration_Comparison');
+        current_figures(end+1) = h; 
+        ax2(1) = subplot(1,1,1);
+        hold on;
+        plot(vTimeResample, vRrSignal.*1000, 'g-', 'DisplayName', 'Radar Respiration');
+        plot(time_respiration, tfm_respiration, 'r-', 'DisplayName', 'TFM Respiration');         
+        hold off;
+        title(sprintf('Respiration Signals Comparison - ID: %s, Scenario: %s', ID, scenario));
+        ylabel('Rel. Distance(mm)');
+        xlabel('Time(s)');
+        legend('show');
+        grid on;
         h = figure(); 
         set(h, 'Name', 'Radar_ECG_Peak_Finders');
         current_figures(end+1) = h; 
@@ -234,7 +236,8 @@ for indx = 1:length(IDrange)
         BA_Hndl = gcf; 
         set(BA_Hndl, 'Name', 'Bland_Altman_Analysis'); 
         title(sprintf('Bland-Altman Analysis (HR Peaks vs GT) - ID: %s, Scenario: %s', ID, scenario));
-        current_figures(end+1) = BA_Hndl; 
+        current_figures(end+1) = BA_Hndl;
+        end
 
 %% 8. save results
         saveFigures(current_figures, ID, scenario, saveBaseDir);
