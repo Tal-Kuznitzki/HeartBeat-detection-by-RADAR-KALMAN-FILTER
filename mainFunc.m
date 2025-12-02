@@ -237,6 +237,55 @@ for indx = 1:length(IDrange)
         set(BA_Hndl, 'Name', 'Bland_Altman_Analysis'); 
         title(sprintf('Bland-Altman Analysis (HR Peaks vs GT) - ID: %s, Scenario: %s', ID, scenario));
         current_figures(end+1) = BA_Hndl;
+       
+
+%%% HELLO ADD HERE!
+        h = figure(); 
+        set(h, 'Name', 'Summary_Dashboard_Vertical_Linked', 'Position', [100 50 1000 1200]); 
+        current_figures(end+1) = h; 
+        
+        % Initialize array to store axes handles for linking
+        ax_link = [];
+
+        % 1. Radar Heart signal WITH PEAKS
+        ax_link(1) = subplot(4,1,1);
+        hold on;
+        plot(vTimeResample, vHeartSignalBand, 'b', 'DisplayName', 'Radar Signal');
+        plot(locsR/resampleFS, vHeartSignalBand(locsR), 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
+        hold off;
+        title(sprintf('Radar Heart Signal (BPF) - ID: %s, Scenario: %s', ID, scenario));
+        xlabel('Time (s)'); ylabel('Amp');
+        legend('show'); grid on; axis tight;
+        
+        % 2. ECG reference WITH PEAKS
+        ax_link(2) = subplot(4,1,2);
+        hold on;
+        plot(time_ecg, tfm_ecg, 'r', 'DisplayName', 'ECG Signal');
+        plot(qrs_i_raw_ref/fs_ecg, tfm_ecg(qrs_i_raw_ref), 'k*', 'MarkerSize', 8, 'DisplayName', 'QRS Peaks');
+        hold off;
+        title(sprintf('ECG Reference Signal - ID: %s, Scenario: %s', ID, scenario));
+        xlabel('Time (s)'); ylabel('Amp');
+        legend('show'); grid on; axis tight;
+        
+        % 3. HeartRate (Reference vs Calculated)
+        ax_link(3) = subplot(4,1,3);
+        hold on;
+        plot(vTimeHrGT, vHrGT, 'r', 'LineWidth', 1.5, 'DisplayName', 'ECG Ground Truth');
+        plot(vTimeHrPeaks, vHrPeaks, 'b--', 'LineWidth', 1.2, 'DisplayName', 'Radar (Peaks)');
+        hold off;
+        title(sprintf('Heart Rate Comparison - ID: %s, Scenario: %s', ID, scenario));
+        xlabel('Time (s)'); ylabel('BPM');
+        legend('Location', 'best');
+        grid on; axis tight;
+        
+        % 4. Bland-Altman (NOT LINKED - Different X-axis domain)
+        subplot(4,1,4);
+        BlandAltman(vHrGT, vHrPeaks, 2, 0);
+        title(sprintf('Bland-Altman Analysis - ID: %s, Scenario: %s', ID, scenario));
+
+        % Link the time-domain axes (1, 2, and 3)
+        linkaxes(ax_link, 'x');
+        
         end
 
 %% 8. save results
