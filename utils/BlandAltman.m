@@ -46,17 +46,30 @@ function [means,diffs,meanDiff,CR,linFit] = BlandAltman(var1, var2, flag, flag2)
     CR = [meanDiff + 1.96 * sdDiff, meanDiff - 1.96 * sdDiff]; %%95% confidence range
     
     linFit = polyfit(means,diffs,1); %%%work out the linear fit coefficients
-    
+    % if var1&var2 include "Hr" "Gt" or "Rr" in the name, name name1='HR'
+    % Check if var1 contains "Hr" and adjust the variable name accordingly
+    name1 = '';
+    name2 = 'GT';
+    if contains(inputname(1), 'Hr')
+        name1 = 'HR';
+    end
+    if contains(inputname(1), 'Rr')
+        name1 = 'RR';
+    end
+   
+    %
+
     %%%plot results unless flag is 0
     if flag ~= 0
         figure
         plot(means,diffs,'.','MarkerSize',1)
         hold on
-        xlabel('Mean of method A and B');
+        xlabel(['Mean of ', name1, ' and ', name2]);
+        
         if flag2
-            ylabel('(method A - method B)/Average %');
+            ylabel(['Difference of ', name1, ' and ', name2,'/% Average']);
         else
-            ylabel('method A - method B');
+            ylabel(['Difference of ', name1, ' and ', name2]);
         end
         if flag > 1
             plot(means, ones(1,length(means)).*CR(1),'g-'); %%%plot the upper CR
