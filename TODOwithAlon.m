@@ -24,7 +24,7 @@ figure; hold on;
 plot(diffFinal(:,1),'.');
 plot(diffFinal(:,2),'.');
 
-finalMed=[medfilt1(diffFinal(:,1)) , medfcilt1(diffFinal(:,2))]
+finalMed=[medfilt1(diffFinal(:,1)) , medfilt1(diffFinal(:,2))]
 figure; hold on;
 plot(medfilt1(diffFinal(:,1),10));
 plot(medfilt1(diffFinal(:,2),10));

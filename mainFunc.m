@@ -24,7 +24,7 @@ scenarios = {'Resting'};
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
-resampleFS=100; 
+resampleFS=250; 
 b_plot_ALL=1; 
 scrsz = get(groot,'ScreenSize');
 addpath(genpath('utils'))
