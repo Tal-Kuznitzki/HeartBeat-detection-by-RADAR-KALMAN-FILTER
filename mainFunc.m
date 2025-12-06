@@ -89,9 +89,7 @@ for indx = 1:length(IDrange)
         tic;
         vHeartSignalBand=HRfir(radar_dist_RsFs,resampleFS);
         
-        % Capture HRfir figure if it exists
         HRfir_h = gcf;
-        % FIX 2: Use isgraphics instead of isvalid
         if isgraphics(HRfir_h) && strcmp(get(HRfir_h, 'Name'), 'HRfir_Internal_Plot')
             current_figures(end+1) = HRfir_h;
         end
@@ -142,8 +140,8 @@ for indx = 1:length(IDrange)
         HR_pan_tompkin_reference = (fs_ecg./(diff(qrs_i_raw_ref))) * 60;
         toc;
         tic;
-        thresholdHRbnad= mean(abs((vHeartSignalBand)))*0.05; 
-        [pksR,locsR,widthsR,promsR] = findpeaks(vHeartSignalBand, "MinPeakHeight",thresholdHRbnad,'MinPeakDistance',0.33*resampleFS);
+        thresholdHRband= mean(abs((vHeartSignalBand)))*0.06; 
+        [pksR,locsR,widthsR,promsR] = findpeaks(vHeartSignalBand, "MinPeakHeight",thresholdHRband,'MinPeakDistance',0.33*resampleFS);
         toc;
         vHrFromPeaks = 60*resampleFS./diff(locsR);
         vHrGtPeaks = 60*fs_ecg./diff(qrs_i_raw_ref);
@@ -171,10 +169,10 @@ for indx = 1:length(IDrange)
         hold on;
         plot(vTimeResample,vHeartSignalBand*1e4,'DisplayName','filtered signal radar');
         plot(locsR/resampleFS,vHeartSignalBand(locsR)*1e4,'*', 'DisplayName','peaks');
-        yline(thresholdHRbnad*1e4,'DisplayName','detector threshold');
+        yline(thresholdHRband*1e4,'DisplayName','detector threshold');
         hold off;
         subplot(2,1,2)
-        title(sprintf('ECG Signal & Peak Finder - ID: %s, Scenario: %s (ECG Signal)', ID, scenario))
+        title(sprintf('ECG reference Signal & Peaks - ID: %s, Scenario: %s (ECG Signal)', ID, scenario))
         hold on;
         plot(time_ecg,tfm_ecg,'DisplayName','ECG signal');
         plot(qrs_i_raw_ref/fs_ecg,tfm_ecg(qrs_i_raw_ref),'*','DisplayName','ECG peaks');
@@ -197,6 +195,8 @@ for indx = 1:length(IDrange)
         legend('show');
         grid on;
         hold off;
+%{ 
+windowed,not needed
 
         vRMseCorrVsGt=sqrt(mean((vHrCorr- vHrGT).^2));
         vRMseCorrMaxVsGt=sqrt(mean((vHrCorrMax- vHrGT).^2));
@@ -219,7 +219,7 @@ for indx = 1:length(IDrange)
         xlabel('Time(s)');
         legend('show');
         grid on;
-
+%}
         h = figure(); 
         set(h, 'Name', 'Radar_BPF_Signal_Segment_Peaks');
         current_figures(end+1) = h; 
@@ -230,18 +230,9 @@ for indx = 1:length(IDrange)
         xlabel('Time(s)'); 
         title(sprintf('Radar BPF Signal Segment with Peaks - ID: %s, Scenario: %s', ID, scenario));
         hold off;
-
-        [BAmeans,BAdiffs,BAmeanDiff,BACR,BAlinFit]=BlandAltman(vHrGT,vHrPeaks,2,0);
-
-        BA_Hndl = gcf; 
-        set(BA_Hndl, 'Name', 'Bland_Altman_Analysis'); 
-        title(sprintf('Bland-Altman Analysis (HR Peaks vs GT) - ID: %s, Scenario: %s', ID, scenario));
-        current_figures(end+1) = BA_Hndl;
        
-
-%%% HELLO ADD HERE!
         h = figure(); 
-        set(h, 'Name', 'Summary_Dashboard_Vertical_Linked', 'Position', [100 50 1000 1200]); 
+        set(h, 'Name', 'Summary', 'Position', [100 50 1000 1200]); 
         current_figures(end+1) = h; 
         
         % Initialize array to store axes handles for linking
@@ -270,11 +261,13 @@ for indx = 1:length(IDrange)
         % 3. HeartRate (Reference vs Calculated)
         ax_link(3) = subplot(4,1,3);
         hold on;
-        plot(vTimeHrGT, vHrGT, 'r', 'LineWidth', 1.5, 'DisplayName', 'ECG Ground Truth');
-        plot(vTimeHrPeaks, vHrPeaks, 'b--', 'LineWidth', 1.2, 'DisplayName', 'Radar (Peaks)');
+        plot(vHrGtPeaks, 'r', 'LineWidth', 1.5, 'DisplayName', 'ECG Ground Truth');
+        plot(vHrFromPeaks, 'b--', 'LineWidth', 1.2, 'DisplayName', 'Radar (Peaks)');
         hold off;
         title(sprintf('Heart Rate Comparison - ID: %s, Scenario: %s', ID, scenario));
-        xlabel('Time (s)'); ylabel('BPM');
+        %xlabel('Time (s)');
+        xlabel('Sample Index of IBI');
+        ylabel('BPM');
         legend('Location', 'best');
         grid on; axis tight;
         
@@ -285,6 +278,28 @@ for indx = 1:length(IDrange)
 
         % Link the time-domain axes (1, 2, and 3)
         linkaxes(ax_link, 'x');
+
+        figure();
+        BlandAltman(vHrGT, vHrPeaks, 2, 0);
+        BA_Hndl = gcf; 
+        set(BA_Hndl, 'Name', 'Bland_Altman_Analysis'); 
+        title(sprintf('Bland-Altman Analysis (HR Peaks vs GT) - ID: %s, Scenario: %s', ID, scenario));
+        current_figures(end+1) = BA_Hndl;
+
+        h = figure(); 
+        set(h, 'Name', 'Radar_BPF_Signal_Segment_Peaks');
+        current_figures(end+1) = h; 
+        hold on;
+        plot(vTimeResample, vHeartSignalBand*1e4);
+        plot(locsR/resampleFS,vHeartSignalBand(locsR)*1e4,'*'); 
+        ylabel('Rel. Distance(10^{-4} mm)');
+        xlabel('Time(s)'); 
+        title(sprintf('Radar BPF Signal Segment with Peaks - ID: %s, Scenario: %s', ID, scenario));
+        hold off;
+
+
+
+
         
         end
 

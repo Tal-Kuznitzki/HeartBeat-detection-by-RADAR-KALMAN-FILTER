@@ -2,7 +2,7 @@ function [vOutput] = HPF_05(vSignal, fs)
 
 d = designfilt('highpassiir',...
         'StopbandFrequency', 0.4,...
-        'PassbandFrequency',0.6,'StopbandAttenuation',60, ...
+        'PassbandFrequency',0.5,'StopbandAttenuation',60, ...
         'SampleRate',fs,'DesignMethod',       'ellip');
 
 [b,a] = tf(d);   % returns numerator b and denominator a
@@ -10,9 +10,9 @@ b=b(:);
 a=a(:);
 
 % assume b,a are from tf(d)
-fprintf('max abs coeff b=%g, a=%g\n', max(abs(b)), max(abs(a)));
+%fprintf('max abs coeff b=%g, a=%g\n', max(abs(b)), max(abs(a)));
 p = roots(a);
-fprintf('max pole mag = %g\n', max(abs(p)));
+%fprintf('max pole mag = %g\n', max(abs(p)));
 
 y = filter(b, a, vSignal);
 

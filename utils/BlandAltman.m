@@ -61,7 +61,7 @@ function [means,diffs,meanDiff,CR,linFit] = BlandAltman(var1, var2, flag, flag2)
 
     %%%plot results unless flag is 0
     if flag ~= 0
-        figure
+        %figure
         plot(means,diffs,'.','MarkerSize',1)
         hold on
         xlabel(['Mean of ', name1, ' and ', name2]);
