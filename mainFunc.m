@@ -11,13 +11,19 @@
 % 9. Clean up (close figures)
 
 % --- STEP 1: Global Initialization (Run only once) ---
-b_CLEAN_START = true; 
-
+b_CLEAN_START = true;
 if b_CLEAN_START
     clc; 
     clear all; 
     close all; 
 end
+
+b_CLEAR_OLD = true;
+b_plot_ALL=true;
+
+
+
+
 
 IDrange = 1; %11:12;   
 scenarios = {'Resting'}; 
@@ -25,13 +31,17 @@ ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
 resampleFS=250; 
-b_plot_ALL=1; 
+ 
 scrsz = get(groot,'ScreenSize');
 addpath(genpath('utils'))
 windowSeconds=15; 
 windowStep=1; 
 saveBaseDir = 'SavedAnalysisFigures'; 
 lambda = 0.0125 ;
+
+if b_CLEAR_OLD && exist(saveBaseDir,'dir')
+    rmdir(saveBaseDir,'s');
+end
 
 %% 2. initialization - Loop Start
 for indx = 1:length(IDrange)
@@ -120,26 +130,26 @@ for indx = 1:length(IDrange)
            %}
         
 %% 6. time analysis
-        tic;
-        [vHrPeaks,vTimeHrPeaks] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"peaks");
-        toc;
-        tic;
-        [vHrCorr,vTimeHrCorr] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"corr");
-        toc;
-        tic;
-        [vHrGT,vTimeHrGT] = movingWindowHR(tfm_ecg,fs_ecg,windowSeconds,windowStep,"qrs");
-        toc;
-        tic;
-        [vHrCorrMax,vTimeHrCorrMax] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"corrmax");
-        toc;
-        tic;
-        [vHrFft,vTimeHrFft] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"fft");
-        toc;
-        tic;
-        [qrs_amp_raw_ref,qrs_i_raw_ref,delay_ref] = pan_tompkin(tfm_ecg,fs_ecg,0); 
-        HR_pan_tompkin_reference = (fs_ecg./(diff(qrs_i_raw_ref))) * 60;
-        toc;
-        tic;
+        % tic;
+        % [vHrPeaks,vTimeHrPeaks] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"peaks");
+        % toc;
+        % tic;
+        % [vHrCorr,vTimeHrCorr] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"corr");
+        % toc;
+        % tic;
+        % [vHrGT,vTimeHrGT] = movingWindowHR(tfm_ecg,fs_ecg,windowSeconds,windowStep,"qrs");
+        % toc;
+        % tic;
+        % [vHrCorrMax,vTimeHrCorrMax] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"corrmax");
+        % toc;
+        % tic;
+        % [vHrFft,vTimeHrFft] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"fft");
+        % toc;
+        % tic;
+         [qrs_amp_raw_ref,qrs_i_raw_ref,delay_ref] = pan_tompkin(tfm_ecg,fs_ecg,0); 
+        % HR_pan_tompkin_reference = (fs_ecg./(diff(qrs_i_raw_ref))) * 60;
+        % toc;
+        % tic;
         thresholdHRband= mean(abs((vHeartSignalBand)))*0.05; 
         [pksR,locsR,widthsR,promsR] = findpeaks(vHeartSignalBand, "MinPeakHeight",thresholdHRband,'MinPeakDistance',0.33*resampleFS);
         toc;
@@ -162,7 +172,7 @@ for indx = 1:length(IDrange)
 %% 7. print our results
         if(b_plot_ALL)   
         
-            h = figure(); 
+        h = figure(); 
         set(h,'Position',[1 1 scrsz(3) scrsz(4)-80], 'Name', 'Respiration_Comparison');
         current_figures(end+1) = h; 
         ax2(1) = subplot(1,1,1);
@@ -292,14 +302,18 @@ windowed,not needed
         
         % 4. Bland-Altman (NOT LINKED - Different X-axis domain)
         subplot(4,1,4);
-        BlandAltman(vHrGT, vHrPeaks, 2, 0);
+        min_len = min(length(vHrGtPeaks), length(vHrFromPeaks));
+        vec_ecg = vHrGtPeaks(1:min_len);
+        vec_radar = vHrFromPeaks(1:min_len);
+
+        BlandAltman(vec_ecg, vec_radar, 2, 0);
         title(sprintf('Bland-Altman Analysis - ID: %s, Scenario: %s', ID, scenario));
 
         % Link the time-domain axes (1, 2, and 3)
         linkaxes(ax_link, 'x');
 
         figure();
-        BlandAltman(vHrGT, vHrPeaks, 2, 0);
+        BlandAltman(vec_ecg, vec_radar, 2, 0);
         BA_Hndl = gcf; 
         set(BA_Hndl, 'Name', 'Bland_Altman_Analysis'); 
         title(sprintf('Bland-Altman Analysis - ID: %s, Scenario: %s', ID, scenario));
@@ -324,8 +338,73 @@ windowed,not needed
         
 
         %TODO ADD ERROR FOR ALON
-
+      % --- ADDED: Error & Correlation Analysis for Alon ---
+        h = figure();
+        set(h, 'Name', 'HR_Error_Analysis', 'Position', [100 100 800 900]);
+        current_figures(end+1) = h;
+      
+        % 1. Sync lengths (Windowed signals might differ by 1 sample)
+        min_len = min(length(vHrGtPeaks), length(vHrFromPeaks));
         
+        % 2. Extract aligned vectors
+        vec_ecg = vHrGtPeaks(1:min_len);
+        vec_radar = vHrFromPeaks(1:min_len);
+        err_vec = vec_ecg - vec_radar;
+        time_axis_err = vTimeResample(1:min_len); 
+        
+        % 3. Calculate Global Statistics
+        mae_val = mean(abs(err_vec));      % Mean Absolute Error
+        rmse_val = sqrt(mean(err_vec.^2)); % Root Mean Square Error
+        
+        % 4. Calculate Sliding Correlation (Correlation over Time)
+        % We look at a local window (e.g., 5 samples) to see if trends match
+        corr_win = 5; 
+        running_corr = zeros(1, min_len);
+        for k = 1:min_len
+            % Define window indices
+            idx_start = max(1, k - floor(corr_win/2));
+            idx_end = min(min_len, k + ceil(corr_win/2));
+            
+            % Calculate correlation for this window
+            if (idx_end - idx_start) > 2
+                % corrcoef returns a 2x2 matrix, we want the off-diagonal
+                r_mat = corrcoef(vec_ecg(idx_start:idx_end), vec_radar(idx_start:idx_end));
+                running_corr(k) = r_mat(1,2);
+            else
+                running_corr(k) = NaN;
+            end
+        end
+        
+        % --- PLOT 1: Error vs ECG Value ---
+        subplot(3,1,1);
+        plot(vec_ecg, err_vec, 'ko', 'MarkerFaceColor', 'r', 'MarkerSize', 5);
+        yline(0, 'b--', 'LineWidth', 2);
+        title(sprintf('Error vs. ECG HR (MAE: %.2f, RMSE: %.2f) - ID: %s, Scenario: %s', ...
+              mae_val, rmse_val, ID, scenario));
+        xlabel('ECG Ground Truth (BPM)');
+        ylabel('Error (BPM)');
+        grid on;
+        
+        % --- PLOT 2: Error Over Time ---
+        subplot(3,1,2);
+        plot(time_axis_err, err_vec, 'r-', 'LineWidth', 1.5);
+        yline(0, 'k--');
+        title(sprintf('Heart Rate Error over Time - ID: %s, Scenario: %s', ID, scenario));
+        xlabel('Time (s)');
+        ylabel('Error (BPM)');
+        grid on;
+        
+        % --- PLOT 3: Correlation Over Time ---
+        subplot(3,1,3);
+        plot(time_axis_err, running_corr, 'b-', 'LineWidth', 1.5);
+        yline(1, 'g--'); yline(0, 'k-'); yline(-1, 'r--');
+        ylim([-1.1 1.1]);
+        title(sprintf('Correlation of HR Trends (Win: %d) - ID: %s, Scenario: %s', ...
+              corr_win, ID, scenario));
+        xlabel('Time (s)');
+        ylabel('Corr Coeff [-1 to 1]');
+        grid on;
+
         end
 
 %% 8. save results
