@@ -140,15 +140,29 @@ for indx = 1:length(IDrange)
         HR_pan_tompkin_reference = (fs_ecg./(diff(qrs_i_raw_ref))) * 60;
         toc;
         tic;
-        thresholdHRband= mean(abs((vHeartSignalBand)))*0.06; 
+        thresholdHRband= mean(abs((vHeartSignalBand)))*0.05; 
         [pksR,locsR,widthsR,promsR] = findpeaks(vHeartSignalBand, "MinPeakHeight",thresholdHRband,'MinPeakDistance',0.33*resampleFS);
         toc;
+
+%{
+        figure();
+        hold on;
+        plot(locsR,vHeartSignalBand(locsR), '*', 'DisplayName', 'peaks');
+        plot(vHeartSignalBand, 'r-', 'DisplayName', 'SignalBand');         
+        hold off;
+        title(sprintf('Respiration Signals Comparison - ID: %s, Scenario: %s', ID, scenario));
+%}
+
+
+
+
         vHrFromPeaks = 60*resampleFS./diff(locsR);
         vHrGtPeaks = 60*fs_ecg./diff(qrs_i_raw_ref);
 
 %% 7. print our results
         if(b_plot_ALL)   
-        h = figure(); 
+        
+            h = figure(); 
         set(h,'Position',[1 1 scrsz(3) scrsz(4)-80], 'Name', 'Respiration_Comparison');
         current_figures(end+1) = h; 
         ax2(1) = subplot(1,1,1);
@@ -161,14 +175,17 @@ for indx = 1:length(IDrange)
         xlabel('Time(s)');
         legend('show');
         grid on;
+
         h = figure(); 
-        set(h, 'Name', 'Radar_ECG_Peak_Finders');
+        set(h, 'Name', 'Radar_ECG_Peaks');
         current_figures(end+1) = h; 
         subplot(2,1,1)
         title(sprintf('Radar HR Filters & Peak Finder - ID: %s, Scenario: %s (Radar Signal)', ID, scenario));
         hold on;
         plot(vTimeResample,vHeartSignalBand*1e4,'DisplayName','filtered signal radar');
-        plot(locsR/resampleFS,vHeartSignalBand(locsR)*1e4,'*', 'DisplayName','peaks');
+        %plot(locsR/resampleFS,vHeartSignalBand(locsR)*1e4,'*', 'DisplayName','peaks');
+        plot(vTimeResample(locsR),vHeartSignalBand(locsR)*1e4,'*', 'DisplayName','peaks');
+        
         yline(thresholdHRband*1e4,'DisplayName','detector threshold');
         hold off;
         subplot(2,1,2)
@@ -219,17 +236,19 @@ windowed,not needed
         xlabel('Time(s)');
         legend('show');
         grid on;
-%}
+
         h = figure(); 
         set(h, 'Name', 'Radar_BPF_Signal_Segment_Peaks');
         current_figures(end+1) = h; 
         hold on;
         plot(vTimeResample, vHeartSignalBand*1e4);
-        plot(locsR/resampleFS,vHeartSignalBand(locsR)*1e4,'*'); 
+        %plot(locsR/resampleFS, vHeartSignalBand(locsR), 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
+        plot(vTimeResample(locsR),vHeartSignalBand(locsR)*1e4,'*'); 
         ylabel('Rel. Distance(10^{-4} mm)');
         xlabel('Time(s)'); 
         title(sprintf('Radar BPF Signal Segment with Peaks - ID: %s, Scenario: %s', ID, scenario));
         hold off;
+        %}      
        
         h = figure(); 
         set(h, 'Name', 'Summary', 'Position', [100 50 1000 1200]); 
@@ -242,7 +261,7 @@ windowed,not needed
         ax_link(1) = subplot(4,1,1);
         hold on;
         plot(vTimeResample, vHeartSignalBand, 'b', 'DisplayName', 'Radar Signal');
-        plot(locsR/resampleFS, vHeartSignalBand(locsR), 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
+        plot(vTimeResample(locsR), vHeartSignalBand(locsR), 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
         hold off;
         title(sprintf('Radar Heart Signal (BPF) - ID: %s, Scenario: %s', ID, scenario));
         xlabel('Time (s)'); ylabel('Amp');
@@ -283,7 +302,7 @@ windowed,not needed
         BlandAltman(vHrGT, vHrPeaks, 2, 0);
         BA_Hndl = gcf; 
         set(BA_Hndl, 'Name', 'Bland_Altman_Analysis'); 
-        title(sprintf('Bland-Altman Analysis (HR Peaks vs GT) - ID: %s, Scenario: %s', ID, scenario));
+        title(sprintf('Bland-Altman Analysis - ID: %s, Scenario: %s', ID, scenario));
         current_figures(end+1) = BA_Hndl;
 
         h = figure(); 
@@ -291,7 +310,9 @@ windowed,not needed
         current_figures(end+1) = h; 
         hold on;
         plot(vTimeResample, vHeartSignalBand*1e4);
-        plot(locsR/resampleFS,vHeartSignalBand(locsR)*1e4,'*'); 
+        %plot(locsR/resampleFS,vHeartSignalBand(locsR)*1e4,'*'); 
+        % TODO CHECK WHY NO WORK
+        plot(vTimeResample(locsR),vHeartSignalBand(locsR)*1e4,'*'); 
         ylabel('Rel. Distance(10^{-4} mm)');
         xlabel('Time(s)'); 
         title(sprintf('Radar BPF Signal Segment with Peaks - ID: %s, Scenario: %s', ID, scenario));
@@ -299,6 +320,10 @@ windowed,not needed
 
 
 
+        % ERRROR IBI VS ECG-HR 
+        
+
+        %TODO ADD ERROR FOR ALON
 
         
         end
