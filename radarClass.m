@@ -15,6 +15,7 @@ classdef radarClass < handle
         HrSignal
         RrSignal
         HrPeaks
+        HrPeaksFinal
         RrPeaks
         ecgPeaks
         correlated_HrPeaks %saving the corresponding peaks of gt and Hr
@@ -22,10 +23,17 @@ classdef radarClass < handle
 
         %results
         HrEst
+        HrEstFinal
         RrEst
         GtEst
         HrGtMean
         HrGtDiff
+        mseRaw
+        mseFitted
+        maeRaw
+        maeFitted
+        mse2HrRaw
+        mse2HrFinal
 
         %additional information
         vTimeOriginal
@@ -165,15 +173,21 @@ classdef radarClass < handle
             obj.HrEst = 60 ./  diff(obj.HrPeaks);
             obj.GtEst = 60 ./  diff(obj.ecgPeaks); 
             obj.RrEst = 60 ./  diff(obj.RrPeaks);
+            if(~isempty(obj.HrPeaksFinal))
+                obj.HrEstFinal = 60 ./  diff(obj.HrPeaksFinal);
+            end
         end
         % align HR detected peaks to gt peaks- validation
         % also returns a vector with missed beats and their offset,
         % and a vector of false positives
         function [missed,excess] = CorrelatePeaks(obj)
+            if(isempty(obj.HrPeaksFinal))
+                obj.HrPeaksFinal=obj.HrPeaks;
+            end
             final=zeros(length(obj.ecgPeaks),2);
-            localHr=obj.HrPeaks;
+            localHr=obj.HrPeaksFinal;
             missed=zeros(length(obj.ecgPeaks),2);
-            excess = ones(length(obj.HrPeaks),1);
+            excess = ones(length(obj.HrPeaksFinal),1);
             for i=1:length(obj.ecgPeaks)
                 diffI = abs(obj.ecgPeaks(i)-localHr);
                 [val,loc]=min(diffI);
@@ -185,7 +199,7 @@ classdef radarClass < handle
                 else 
                     excess(loc) = 0;
                     final(i,1) = obj.ecgPeaks(i);
-                    final(i,2) = obj.HrPeaks(loc);
+                    final(i,2) = obj.HrPeaksFinal(loc);
                     localHr(loc) = inf; %making sure this value wont apply to 2 different beats.
                 end
             end
@@ -196,9 +210,12 @@ classdef radarClass < handle
         end
         % function to find false positives independently for radar
         function [removals] = clearFalsePos(obj)
+             if(isempty(obj.HrPeaksFinal))
+                obj.HrPeaksFinal=obj.HrPeaks;
+            end
             % go over obj.HrPeaks, find beats that their diff is suspicous
-            diffs= diff(obj.HrPeaks);
-            removals= zeros(size(obj.HrPeaks));
+            diffs= diff(obj.HrPeaksFinal);
+            removals= zeros(size(obj.HrPeaksFinal));
             for i=2:length(diffs)-2
                 %scenario 1: single phase shift
                 %scenario 2: false positive
@@ -211,15 +228,15 @@ classdef radarClass < handle
                    potDiff=diffs(i)+diffs(i+1);
                    avgDiff = (diffs(i-1)+diffs(i+2))/2;
                    if(potDiff<1.5*(avgDiff) && avgDiff<2 && avgDiff>0.33) %decide to remove extra beat
-                       removals(i+1) = obj.HrPeaks(i+1);
+                       removals(i+1) = obj.HrPeaksFinal(i+1);
                       
-                       obj.HrPeaks(i+1) = 0;  
+                       obj.HrPeaksFinal(i+1) = 0;  
                        
                    end
                 end
                 
             end %end of loop
-            obj.HrPeaks= obj.HrPeaks(obj.HrPeaks>0); %remove removed beats 
+            obj.HrPeaksFinal= obj.HrPeaksFinal(obj.HrPeaksFinal>0); %remove removed beats 
             for i=2:length(diffs)-2
                 %scenario 1: single phase shift:
                  minI=max(2,i-10);
@@ -228,7 +245,8 @@ classdef radarClass < handle
                   || (diffs(i)<1.2*diffs(i-1) && diffs(i+1)>1.2*diffs(i+2)))
                      %beat i came late
                      if(abs((diffs(i)+diffs(i+1)/2)-meanWin)<meanWin*0.5)
-                        obj.HrPeaks(i+1) = (obj.HrPeaks(i+2)+obj.HrPeaks(i))/2;
+                        obj.HrPeaksFinal(i+1) =...
+                       (obj.HrPeaksFinal(i+2)+obj.HrPeaksFinal(i))/2;
                      end
                  end
              end
@@ -237,6 +255,29 @@ classdef radarClass < handle
            
             
         end 
+        
+        function [] = CalcError(obj)
+            
+            v1=obj.HrEstFinal;
+            v2=obj.GtEst;
+            mseraw=v1.^2-v2.^2;
+            obj.mseRaw = sum(mseraw);
+            obj.maeRaw = sum(abs(v1-v2));
+            obj.mse2HrRaw = sortrows([v2, mseraw]); % N,2, acending error per beat rate
+            
+            v1=obj.correlated_HrPeaks(:,1);
+            v2=obj.correlated_HrPeaks(:,2);
+            mseraw=v1.^2-v2.^2;
+            obj.mseFitted = sum(mseraw);
+            obj.maeFitted = sum(abs(v1-v2));
+            obj.mse2HrFinal = sortrows([v2, mseraw]); % N,2, acending error per beat rate
+            
+            %calculate the MSE, MAE, MRE between v1 and v2:
+            
+
+
+            
+        end
 
         % plotting functions
         

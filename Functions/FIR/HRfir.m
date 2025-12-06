@@ -1,4 +1,4 @@
-function [vSigOut] = HRfir(vSig,fs)
+function [firL,firH] = HRfir(fs)
 
 % Design a FIR HPF with a StopbandFreq 0.4 and PassbandFreq 0.6
 % fs for sampling freq, and N<100
@@ -26,10 +26,10 @@ firL = designfilt('lowpassfir','PassbandFrequency',PassbandFrequencyL,...
 
 
 
-nameH = sprintf('FIR HPF freq response stopband Freq %.1f [Hz] Passband Freq %.1f [Hz] Stopband Attenuation %d dB',...
-    StopbandFrequencyH,PassbandFrequencyH,StopbandAttenuationH);
-nameL = sprintf('FIR LPF freq response stopband Freq %.1f [Hz] Passband Freq %.1f [Hz] Stopband Attenuation %d dB',...
-    StopbandFrequencyL,PassbandFrequencyL,StopbandAttenuationL);
+% nameH = sprintf('FIR HPF freq response stopband Freq %.1f [Hz] Passband Freq %.1f [Hz] Stopband Attenuation %d dB',...
+%     StopbandFrequencyH,PassbandFrequencyH,StopbandAttenuationH);
+% nameL = sprintf('FIR LPF freq response stopband Freq %.1f [Hz] Passband Freq %.1f [Hz] Stopband Attenuation %d dB',...
+%     StopbandFrequencyL,PassbandFrequencyL,StopbandAttenuationL);
 
 %{
 figure; 
@@ -48,6 +48,6 @@ legend('show');
 xlabel('Frequency Bin (Shifted)');
 grid on;
 %}
-
-vSigOut= filtfilt(firH,vSig);
-vSigOut = filtfilt(firL,vSigOut);
+% 
+% vSigOut= filtfilt(firH,vSig);
+% vSigOut = filtfilt(firL,vSigOut);

@@ -45,11 +45,11 @@ end
 
 %% 2. initialization - Loop 
 % create filters
-hpf_05=HPF_05(resampleFS);
-lpf_05=HPF_05(resampleFS);
-lpf_3=HPF_05(resampleFS);
+[lpf_3,hpf_05]=HRfir(resampleFS); %HR filters
+lpf_05=LPF_05(resampleFS); %RR filter
+% create a matrix for all of our data, divided by ID and scenario
+dataFull=cell(IDrange,numel(scenarios)); %a cell for each struct
 
-%
 for indx = 1:length(IDrange)
     ID = sprintf('GDN%04d',IDrange(indx));
     fprintf('----------- Loading %s ------------\n', ID);
@@ -57,8 +57,7 @@ for indx = 1:length(IDrange)
     for sz = 1:length(scenarios)
         scenario = scenarios{sz};
         fprintf('---- Scenario %s\n', scenario);
-        
-        % --- FIX 1: Initialize as an Object Array ---
+         % --- FIX 1: Initialize as an Object Array ---
         % 'gobjects(0)' creates an empty array specifically for Graphics Objects.
         % This prevents it from accidentally becoming a numeric array (doubles).
         current_figures = gobjects(0); 
@@ -82,7 +81,7 @@ for indx = 1:length(IDrange)
         output.(ID).(scenario) = struct;
         [radar_i_compensated,radar_q_compensated,phase_compensated,radar_dist] = elreko(radar_i,radar_q,measurement_info{1},1);
         [radar_respiration, radar_pulse, radar_heartsound, tfm_respiration] = getVitalSigns(radar_dist, fs_radar, tfm_z0, fs_z0);
-        
+      
         if ECG_CHANNEL(IDrange(indx)) == 1
             tfm_ecg = fillmissing(tfm_ecg1,'constant',0); 
         else
@@ -94,72 +93,68 @@ for indx = 1:length(IDrange)
         time_ecg = 1/fs_ecg:1/fs_ecg:length(tfm_ecg)/fs_ecg;
         
 %% 4. initial Radar processing
+ %%% TODO: get our own radar_dist
+        dataFull(indx,sz) = radarClass(indx,scenario,fs_radar,radar_dist);
+      
 %% 5. frequency domain processing
-        vTimeFs= 1/fs_radar:1/fs_radar:length(radar_dist)/fs_radar;
-        radar_dist_RsFs=decimate(radar_dist,fs_radar/resampleFS);
-        vTimeResample=decimate(vTimeFs,fs_radar/resampleFS);
+        tic
+        dataFull(indx,sz).DownSampleRadar(resampleFS);
+        dataFull(indx,sz).HrFilter(lpf_3,hpf_05);
+        dataFull(indx,sz).RrFilter(lpf_05);
+        filteringTime = toc;
         
-        tic;
-        vHeartSignal=HPF_05(radar_dist_RsFs,resampleFS);
-        HPFtoc=toc;
-        tic;
-        vHeartSignalBand=HRfir(radar_dist_RsFs,resampleFS);
         
-        HRfir_h = gcf;
-        if isgraphics(HRfir_h) && strcmp(get(HRfir_h, 'Name'), 'HRfir_Internal_Plot')
-            current_figures(end+1) = HRfir_h;
-        end
 
-        BPFtoc=toc;
-        tic;
-        vRrSignal=BPF_005_05(radar_dist_RsFs,resampleFS);
-        RRtoc=toc;
+        % vTimeFs= 1/fs_radar:1/fs_radar:length(radar_dist)/fs_radar;
+        % radar_dist_RsFs=decimate(radar_dist,fs_radar/resampleFS);
+        % vTimeResample=decimate(vTimeFs,fs_radar/resampleFS);
+        % 
+        % tic;
+        % vHeartSignal=HPF_05(radar_dist_RsFs,resampleFS);
+        % HPFtoc=toc;
+        % tic;
+        % vHeartSignalBand=HRfir(radar_dist_RsFs,resampleFS);
+        % 
+        % HRfir_h = gcf;
+        % if isgraphics(HRfir_h) && strcmp(get(HRfir_h, 'Name'), 'HRfir_Internal_Plot')
+        %     current_figures(end+1) = HRfir_h;
+        % end
+        % 
+        % BPFtoc=toc;
+        % tic;
+        % vRrSignal=BPF_005_05(radar_dist_RsFs,resampleFS);
+        % RRtoc=toc;
 
    
-            %old HR filtered_Signals
-           %{
-            h = figure(); 
-            set(h,'Position',[1 1 scrsz(3) scrsz(4)-80], 'Name', 'HeartRate_Filtered_Signals');
-            current_figures(end+1) = h; 
-            
-            ax2(1) = subplot(1,1,1);
-            hold on;
-            plot(vTimeResample, vHeartSignal.*1000, 'g-', 'DisplayName', 'Radar after HPF for HR');
-            plot(vTimeResample, vHeartSignalBand.*1000, 'b-', 'DisplayName', 'Radar after BPF for HR');
-            plot(time_ecg, tfm_ecg, 'r-', 'DisplayName', 'TFM ecg');
-            hold off;
-            title(sprintf('Heart Rate Filtered Signals - ID: %s, Scenario: %s', ID, scenario));
-            ylabel('Rel. Distance(mm)');
-            xlabel('Time(s)');
-            legend('show');
-            grid on;
-           %}
+           
         
 %% 6. time analysis
-        % tic;
-        % [vHrPeaks,vTimeHrPeaks] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"peaks");
-        % toc;
-        % tic;
-        % [vHrCorr,vTimeHrCorr] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"corr");
-        % toc;
-        % tic;
-        % [vHrGT,vTimeHrGT] = movingWindowHR(tfm_ecg,fs_ecg,windowSeconds,windowStep,"qrs");
-        % toc;
-        % tic;
-        % [vHrCorrMax,vTimeHrCorrMax] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"corrmax");
-        % toc;
-        % tic;
-        % [vHrFft,vTimeHrFft] = movingWindowHR(vHeartSignalBand,resampleFS,windowSeconds,windowStep,"fft");
-        % toc;
-        % tic;
-         [qrs_amp_raw_ref,qrs_i_raw_ref,delay_ref] = pan_tompkin(tfm_ecg,fs_ecg,0); 
-        % HR_pan_tompkin_reference = (fs_ecg./(diff(qrs_i_raw_ref))) * 60;
-        % toc;
-        % tic;
-        thresholdHRband= mean(abs((vHeartSignalBand)))*0.05; 
-        [pksR,locsR,widthsR,promsR] = findpeaks(vHeartSignalBand, "MinPeakHeight",thresholdHRband,'MinPeakDistance',0.33*resampleFS);
-        toc;
+       
+        dataFull(indx,sz).FindPeaks();
+        dataFull(indx,sz).FindRates();
+        dataFull(indx,sz).HrEst();
+        dataFull(indx,sz).RrEst();
+        
+        %TODO: update clearFalsePos to make a new vector, use findRates and
+        %HrEst on the new vector, so we keep the data
 
+        dataFull(indx,sz).clearFalsePos();
+        dataFull(indx,sz).correlatePeaks();
+        dataFull(indx,sz).FindRates();
+        dataFull(indx,sz).HrEst();
+        dataFull(indx,sz).CalcError();
+        
+        %146 TODO: call the plotting and data saving functions.
+        %plot the GT, HrEst before and after the algorithms
+        %plot BlandAltman, and a function of error to the beat.
+        %save the dataFull in .mat
+        %later- save statistics on all subjects.
+        
+        % [qrs_amp_raw_ref,qrs_i_raw_ref,delay_ref] = pan_tompkin(tfm_ecg,fs_ecg,0); 
+        % 
+        % thresholdHRband= mean(abs((vHeartSignalBand)))*0.05; 
+        % [pksR,locsR,widthsR,promsR] = findpeaks(vHeartSignalBand, "MinPeakHeight",thresholdHRband,'MinPeakDistance',0.33*resampleFS);
+        % toc;
 %{
         figure();
         hold on;
@@ -168,12 +163,9 @@ for indx = 1:length(IDrange)
         hold off;
         title(sprintf('Respiration Signals Comparison - ID: %s, Scenario: %s', ID, scenario));
 %}
-
-
-
-
-        vHrFromPeaks = 60*resampleFS./diff(locsR);
-        vHrGtPeaks = 60*fs_ecg./diff(qrs_i_raw_ref);
+        % 
+        % vHrFromPeaks = 60*resampleFS./diff(locsR);
+        % vHrGtPeaks = 60*fs_ecg./diff(qrs_i_raw_ref);
 
 %% 7. print our results
         if(b_plot_ALL)   
