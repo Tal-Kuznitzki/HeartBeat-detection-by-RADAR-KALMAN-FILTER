@@ -10,6 +10,8 @@ StopbandFrequencyL = 4;
 PassbandFrequencyH=0.7;
 PassbandFrequencyL=3;
 
+% we pass between 0.7-3, and 0.4<Signal<4
+
 
 StopbandAttenuationH=60;
 StopbandAttenuationL=80;
@@ -29,11 +31,9 @@ nameH = sprintf('FIR HPF freq response stopband Freq %.1f [Hz] Passband Freq %.1
 nameL = sprintf('FIR LPF freq response stopband Freq %.1f [Hz] Passband Freq %.1f [Hz] Stopband Attenuation %d dB',...
     StopbandFrequencyL,PassbandFrequencyL,StopbandAttenuationL);
 
-
+%{
 figure; 
 set(gcf, 'Name', 'HRfir_Internal_Plot'); 
-
-
 subplot(2,1,1);
 plot(abs(fftshift(fft(firH.Numerator))), 'DisplayName','HPF');
 title(nameH); 
@@ -47,5 +47,7 @@ title(nameL);
 legend('show');
 xlabel('Frequency Bin (Shifted)');
 grid on;
+%}
+
 vSigOut= filtfilt(firH,vSig);
 vSigOut = filtfilt(firL,vSigOut);
