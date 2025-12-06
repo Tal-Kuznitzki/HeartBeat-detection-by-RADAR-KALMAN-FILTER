@@ -203,14 +203,14 @@ classdef radarClass < handle
                 %scenario 1: single phase shift
                 %scenario 2: false positive
                 if(diffs(i)<0.6*diffs(i-1) || diffs(i+1)<0.6*diffs(i+2))
-                    %suspected false positive in index i+1. 
+                   %suspected false positive in index i+1. 
                    % [1 2 @2.5 3 4 5] error in i=3
                    % [1 0.5 0.5 1 1 ] small diff found in i=2
-                   %now check if diff(i) + diff(i+1) is around a normal
-                   %diff
+                   % now check if diff(i) + diff(i+1) is around a normal
+                   % diff
                    potDiff=diffs(i)+diffs(i+1);
                    avgDiff = (diffs(i-1)+diffs(i+2))/2;
-                   if(potDiff<1.5*(avgDiff)) %decide to remove extra beat
+                   if(potDiff<1.5*(avgDiff) && avgDiff<2 && avgDiff>0.33) %decide to remove extra beat
                        removals(i+1) = obj.HrPeaks(i+1);
                       
                        obj.HrPeaks(i+1) = 0;  
@@ -222,13 +222,14 @@ classdef radarClass < handle
             obj.HrPeaks= obj.HrPeaks(obj.HrPeaks>0); %remove removed beats 
             for i=2:length(diffs)-2
                 %scenario 1: single phase shift:
-                 minI=max(2,i-7);
+                 minI=max(2,i-10);
                  meanWin= mean(diffs(minI:i));
                  if ((diffs(i)>1.2*meanWin && diffs(i+1)<1.2*meanWin)...
                   || (diffs(i)<1.2*diffs(i-1) && diffs(i+1)>1.2*diffs(i+2)))
                      %beat i came late
-                     obj.HrPeaks(i+1) = (obj.HrPeaks(i+2)+obj.HrPeaks(i))/2;
-
+                     if(abs((diffs(i)+diffs(i+1)/2)-meanWin)<meanWin*0.5)
+                        obj.HrPeaks(i+1) = (obj.HrPeaks(i+2)+obj.HrPeaks(i))/2;
+                     end
                  end
              end
             %after this function, you should run FindRates again to save he

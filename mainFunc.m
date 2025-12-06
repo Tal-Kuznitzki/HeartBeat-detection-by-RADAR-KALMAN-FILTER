@@ -19,7 +19,7 @@ if b_CLEAN_START
 end
 
 b_CLEAR_OLD = true;
-b_plot_ALL=true;
+b_plot_ALL = true;
 
 
 
@@ -43,7 +43,13 @@ if b_CLEAR_OLD && exist(saveBaseDir,'dir')
     rmdir(saveBaseDir,'s');
 end
 
-%% 2. initialization - Loop Start
+%% 2. initialization - Loop 
+% create filters
+hpf_05=HPF_05(resampleFS);
+lpf_05=HPF_05(resampleFS);
+lpf_3=HPF_05(resampleFS);
+
+%
 for indx = 1:length(IDrange)
     ID = sprintf('GDN%04d',IDrange(indx));
     fprintf('----------- Loading %s ------------\n', ID);
