@@ -9,6 +9,7 @@ classdef radarClass < handle
         radar_q
         radar_dist
         ecg_gt
+        resp_gt
         
         %proccessed signals
         radar_decimated
@@ -18,14 +19,16 @@ classdef radarClass < handle
         HrPeaksFinal
         RrPeaks
         ecgPeaks
+        Rrpeaks_gt
         correlated_HrPeaks %saving the corresponding peaks of gt and Hr
         % correlated peak(i,2)=-1 if the peak in (i,1) had no match
-
+       
         %results
         HrEst
         HrEstFinal
         RrEst
-        GtEst
+        HrGtEst
+        RrGtEst
         HrGtMean
         HrGtDiff
         mseRaw
@@ -34,6 +37,8 @@ classdef radarClass < handle
         maeFitted
         mse2HrRaw
         mse2HrFitted
+        correlation_misses
+        correlation_excess
 
         %additional information
         vTimeOriginal
@@ -51,22 +56,25 @@ classdef radarClass < handle
     end
     methods
         % constructor: call when making a new object
-        function obj = radarClass(ID,scenario,fs,ecg,radar_i, radar_q)
+        function obj = radarClass(ID,scenario,fs,ecg,radar_i, radar_q,gt_resp)
             arguments
                 ID {mustBeNonnegative}                 
-                scenario (1,1) string {mustBeMember(scenario, ["resting","valsalva","apnea","tilt-down","tilt-up"])} 
+                scenario (1,1) string {mustBeMember(scenario, ["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"])} 
                 fs {mustBeNonnegative}
                 ecg {mustBeColumn}
                 radar_i {mustBeColumn} 
                 radar_q {mustBeColumn} = 0 %optional, in case we get radar_dist
-                
+                gt_resp{mustBeColumn} = 0 
             end
+                 %TODO : create the process for getting TFM_respiration
 
+            %similliar to getvitalsigns() instead of getting it directly
             obj.ID = ID;
             obj.fs_radar = fs;
             obj.fs_ecg = fs;
             obj.sceneario = scenario;
             obj.ecg_gt = ecg;
+            obj.resp_gt = gt_resp;
             if(radar_q==0)
                 obj.radar_dist=radar_i;
                 sprintf('Only one signal detected, saved as radar_dist')
@@ -162,18 +170,22 @@ classdef radarClass < handle
             [~,obj.RrPeaks, ~,~] = findpeaks(obj.RrSignal, "MinPeakHeight",...
         thresholdRr,'MinPeakDistance',0.33*obj.fs_new);
             [~,obj.ecgPeaks,~] = pan_tompkin(obj.ecg_gt,obj.fs_ecg,0); 
+            [~,obj.Rrpeaks_gt, ~,~] = findpeaks(obj.resp_gt, "MinPeakHeight",...
+        thresholdRr,'MinPeakDistance',0.33*(obj.fs_new/2.5));
+
             
             obj.HrPeaks = obj.HrPeaks / obj.fs_new;
             obj.RrPeaks = obj.RrPeaks / obj.fs_new;
             obj.ecgPeaks = obj.ecgPeaks / obj.fs_ecg;
-            % TODO: add peaks for GT Rr
+            obj.Rrpeaks_gt = obj.Rrpeaks_gt /(obj.fs_ecg/2.5);
         end
 
         % finding the rates
         function FindRates(obj)
             obj.HrEst = 60 ./  diff(obj.HrPeaks);
-            obj.GtEst = 60 ./  diff(obj.ecgPeaks); 
+            obj.HrGtEst = 60 ./  diff(obj.ecgPeaks); 
             obj.RrEst = 60 ./  diff(obj.RrPeaks);
+            obj.RrGtEst = 60 ./ diff(obj.Rrpeaks_gt);            
              % TODO: add rates for GT Rr
             if(~isempty(obj.HrPeaksFinal))
                 obj.HrEstFinal = 60 ./  diff(obj.HrPeaksFinal);
@@ -205,10 +217,12 @@ classdef radarClass < handle
                     localHr(loc) = inf; %making sure this value wont apply to 2 different beats.
                 end
             end
-
-            obj.correlated_HrPeaks = final;
+            obj.correlated_HrPeaks = final(final(:,2) ~= -1, :);
             obj.HrGtMean = mean(final,2);
             obj.HrGtDiff = final(:,1) - final(:,2);
+            obj.correlation_misses=nnz( missed(:,1) ) ;
+            obj.correlation_excess = size(excess,1) - nnz(excess(:,1)) ;
+            
         end
         % function to find missing beats (positives)
         function [additions] = findMissingBeats(obj)
@@ -303,8 +317,11 @@ classdef radarClass < handle
         
         function [] = CalcError(obj)
             
-            v1=obj.HrEstFinal;
-            v2=obj.GtEst;
+
+            min_len = min(length(obj.HrGtEst), length(obj.HrEstFinal));
+            v1=obj.HrEstFinal(1:min_len);
+            v2=obj.HrGtEst(1:min_len);
+            v2=v2(:);
             mseraw=v1.^2-v2.^2;
             obj.mseRaw = sum(mseraw);
             obj.maeRaw = sum(abs(v1-v2));
@@ -382,7 +399,7 @@ classdef radarClass < handle
         function h = plotBA(obj)
             h = []; % Default empty if no data
             % Check if estimates exist
-            if isempty(obj.HrEst) || isempty(obj.GtEst)
+            if isempty(obj.HrEst) || isempty(obj.HrGtEst)
                 warning('HR Estimates are empty. Run FindRates() first.');
                 return;
             end
@@ -390,12 +407,13 @@ classdef radarClass < handle
             h = figure('Name', 'Bland_Altman_Analysis', 'Color', 'w');
             
             % Sync lengths
-            min_len = min(length(obj.GtEst), length(obj.HrEst));
-            vec_ecg = obj.GtEst(1:min_len);
-            vec_radar = obj.HrEst(1:min_len);
-
             if exist('BlandAltman', 'file')
-                BlandAltman(vec_ecg, vec_radar, 2, 0);
+
+
+                Hr_after_corr_fix = 60 ./ diff( obj.correlated_HrPeaks(:,2) );
+                Hr_gt_after_corr_fix = 60 ./ diff( obj.correlated_HrPeaks(:,1) );
+
+                BlandAltman(Hr_gt_after_corr_fix, Hr_after_corr_fix, 2, 0);
             else
                 % Fallback
                 diffs = vec_ecg - vec_radar;
@@ -414,13 +432,12 @@ classdef radarClass < handle
         function h = plotRR(obj) 
             h = figure('Name', 'Respiration_Signal', 'Color', 'w');
             hold on;
-            
-            plot(obj.vTimeNew, obj.RrSignal*1000, 'r-', 'DisplayName', 'Radar Respiration');
+            plot(obj.RrEst, 'r-', 'DisplayName', 'Radar Respiration');
             if ~isempty(obj.resp_gt)
                  % Assuming resp_gt matches vTimeNew or needs interpolation. 
                  % If lengths differ, plotting might fail, so usually we need a time vector for GT or assume alignment.
                  % Here assuming alignment based on previous code:
-                 plot(obj.vTimeNew, obj.resp_gt*1000, 'b-', 'DisplayName', 'TFM Respiration');           
+                 plot(obj.RrGtEst, 'b-', 'DisplayName', 'TFM Respiration');           
             end
             
             title(sprintf('Respiration Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
@@ -460,9 +477,9 @@ classdef radarClass < handle
             % 3. Heart Rate Comparison (BPM vs Time)
             ax_link(3) = subplot(4,1,3);
             hold on;
-            if ~isempty(obj.GtEst)
+            if ~isempty(obj.HrGtEst)
                 time_gt_bpm = obj.ecgPeaks(2:end); 
-                plot(time_gt_bpm, obj.GtEst, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'ECG GT');
+                plot(time_gt_bpm, obj.HrGtEst, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'ECG GT');
             end
             if ~isempty(obj.HrEst)
                 time_radar_bpm = obj.HrPeaks(2:end);
@@ -473,12 +490,14 @@ classdef radarClass < handle
 
             % 4. Bland-Altman (NOT LINKED)
             subplot(4,1,4);
-            if ~isempty(obj.GtEst) && ~isempty(obj.HrEst)
-                min_len = min(length(obj.GtEst), length(obj.HrEst));
-                vec_ecg = obj.GtEst(1:min_len);
-                vec_radar = obj.HrEst(1:min_len);
+            if ~isempty(obj.HrGtEst) && ~isempty(obj.HrEst)
+
+
+                Hr_after_corr_fix = 60 ./ diff( obj.correlated_HrPeaks(:,2) );
+                Hr_gt_after_corr_fix = 60 ./ diff( obj.correlated_HrPeaks(:,1) );
+         
                 if exist('BlandAltman', 'file')
-                    BlandAltman(vec_ecg, vec_radar, 2, 0);
+                   BlandAltman(Hr_gt_after_corr_fix, Hr_after_corr_fix, 2, 0);
                 else
                     plot(vec_ecg, vec_radar, 'o'); xlabel('ECG'); ylabel('Radar');
                 end
@@ -487,6 +506,23 @@ classdef radarClass < handle
 
             linkaxes(ax_link, 'x');            
         end
+%% Plot Error Analysis (Corrected Titles)
+        function h = plotErrors(obj)
+            h = figure('Name', 'HR_Error_Analysis', 'Color', 'w');
+            subplot(1,1,1);
+            hold on;
+            grid on;
+            plot(obj.mse2HrFitted(:,1),obj.mse2HrFitted(:,2),'Color', 'k');
+fprintf('------------------------------------------------\n');
+            fprintf('Error Analysis for ID: %d, Scenario: %s\n', obj.ID, obj.sceneario);
+            fprintf('Mean Absolute Error (MAE) -> RAW: %.2f | Fitted: %.2f\n', obj.maeRaw, obj.maeFitted);
+            fprintf('Mean Squared Error (MSE)  -> RAW: %.2f | Fitted: %.2f\n', obj.mseRaw, obj.mseFitted);
+            fprintf('# Missed beats: %d\n', obj.correlation_misses);
+            fprintf('# Excess beats: %d\n', obj.correlation_excess);
+            fprintf('------------------------------------------------\n');
+        end
+
+
 
         %% Save Figures
         function [] = saveFigures(obj, figHandles, saveDir)
@@ -544,7 +580,7 @@ classdef radarClass < handle
         end
 
         %% Plot All and Optionally Save
-        function [] = plot_all_(obj, bsave, saveDir) 
+        function [] = Plot_all(obj, bsave, saveDir) 
             % bsave - boolean: save all figures?
             % saveDir - optional: string path to save folder
             
@@ -573,6 +609,10 @@ classdef radarClass < handle
             % 4. Dashboard
             h4 = obj.plotDashBoard();
             if isgraphics(h4), figHandles(end+1) = h4; end
+
+            % 5. Error Analysis
+            h5 = obj.plotErrors();
+            if isgraphics(h5), figHandles(end+1) = h5; end
 
             % Save if requested
             if bsave

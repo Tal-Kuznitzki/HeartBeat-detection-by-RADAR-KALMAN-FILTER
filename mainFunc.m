@@ -94,13 +94,13 @@ for indx = 1:length(IDrange)
         
 %% 4. initial Radar processing
  %%% TODO: get our own radar_dist
-        dataFull(indx,sz) = radarClass(indx,scenario,fs_radar,radar_dist);
+      dataFull{indx,sz} = radarClass(indx,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration);
       
 %% 5. frequency domain processing
         tic
-        dataFull(indx,sz).DownSampleRadar(resampleFS);
-        dataFull(indx,sz).HrFilter(lpf_3,hpf_05);
-        dataFull(indx,sz).RrFilter(lpf_05);
+        dataFull{indx,sz}.DownSampleRadar(resampleFS);
+        dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
+        dataFull{indx,sz}.RrFilter(lpf_05);
         filteringTime = toc;
         
         
@@ -130,19 +130,20 @@ for indx = 1:length(IDrange)
         
 %% 6. time analysis
        
-        dataFull(indx,sz).FindPeaks();
-        dataFull(indx,sz).FindRates();
-        dataFull(indx,sz).HrEst();
-        dataFull(indx,sz).RrEst();
+        dataFull{indx,sz}.FindPeaks();
+        dataFull{indx,sz}.FindRates();
+        dataFull{indx,sz}.HrEst();
+        dataFull{indx,sz}.RrEst();
         
         %TODO: update clearFalsePos to make a new vector, use findRates and
         %HrEst on the new vector, so we keep the data
 
-        dataFull(indx,sz).clearFalsePos();
-        dataFull(indx,sz).correlatePeaks();
-        dataFull(indx,sz).FindRates();
-        dataFull(indx,sz).HrEst();
-        dataFull(indx,sz).CalcError();
+        dataFull{indx,sz}.clearFalsePos();
+        dataFull{indx,sz}.CorrelatePeaks();
+        dataFull{indx,sz}.FindRates();
+        dataFull{indx,sz}.HrEst();
+        dataFull{indx,sz}.CalcError();
+        dataFull{indx,sz}.Plot_all(true, saveBaseDir);
         
         %146 TODO: call the plotting and data saving functions.
         %plot the GT, HrEst before and after the algorithms
@@ -168,7 +169,8 @@ for indx = 1:length(IDrange)
         % vHrGtPeaks = 60*fs_ecg./diff(qrs_i_raw_ref);
 
 %% 7. print our results
-        if(b_plot_ALL)   
+
+        if(~b_plot_ALL)   
         
         h = figure(); 
         set(h,'Position',[1 1 scrsz(3) scrsz(4)-80], 'Name', 'Respiration_Comparison');
@@ -257,7 +259,7 @@ windowed,not needed
         title(sprintf('Radar BPF Signal Segment with Peaks - ID: %s, Scenario: %s', ID, scenario));
         hold off;
         %}      
-       
+
         h = figure(); 
         set(h, 'Name', 'Summary', 'Position', [100 50 1000 1200]); 
         current_figures(end+1) = h; 
@@ -406,14 +408,14 @@ windowed,not needed
         end
 
 %% 8. save results
-        saveFigures(current_figures, ID, scenario, saveBaseDir);
+        %saveFigures(current_figures, ID, scenario, saveBaseDir);
 
 % --- STEP 9: Clean up ---
-        for h = current_figures
-            % FIX 3: Use isgraphics in the cleanup loop too
-            if isgraphics(h)
-                close(h);
-            end
-        end
+   %     for h = current_figures
+   %%         % FIX 3: Use isgraphics in the cleanup loop too
+    %        if isgraphics(h)
+  %              close(h);
+   %%         end
+     %   end
     end
 end
