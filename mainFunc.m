@@ -46,7 +46,7 @@ end
 %% 2. initialization - Loop 
 % create filters
 [lpf_3,hpf_05]=HRfir(resampleFS); %HR filters
-lpf_05=LPF_05(resampleFS); %RR filter
+[hpf_005,lpf_05]=LPF_05(resampleFS); %RR filter
 % create a matrix for all of our data, divided by ID and scenario
 dataFull=cell(IDrange,numel(scenarios)); %a cell for each struct
 
@@ -100,7 +100,7 @@ for indx = 1:length(IDrange)
         tic
         dataFull{indx,sz}.DownSampleRadar(resampleFS);
         dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
-        dataFull{indx,sz}.RrFilter(lpf_05);
+        dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
         filteringTime = toc;
         
         
