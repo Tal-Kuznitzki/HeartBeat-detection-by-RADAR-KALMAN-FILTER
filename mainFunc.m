@@ -30,7 +30,7 @@ scenarios = {'Resting'};
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
-resampleFS=250; 
+resampleFS=200; 
  
 scrsz = get(groot,'ScreenSize');
 addpath(genpath('utils'))
@@ -46,7 +46,7 @@ end
 %% 2. initialization - Loop 
 % create filters
 [lpf_3,hpf_05]=HRfir(resampleFS); %HR filters
-%lpf_05=LPF_05(resampleFS); %RR filter
+lpf_05=LPF_05(resampleFS); %RR filter
 % create a matrix for all of our data, divided by ID and scenario
 dataFull=cell(IDrange,numel(scenarios)); %a cell for each struct
 
