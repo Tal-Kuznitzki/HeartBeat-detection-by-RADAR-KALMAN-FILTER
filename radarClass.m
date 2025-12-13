@@ -440,7 +440,7 @@ classdef radarClass < handle
                  plot(obj.RrGtEst, 'b-', 'DisplayName', 'TFM Respiration');           
             end
                     time_respiration = 1/fs_z0:1/100:length(obj.resp_gt)/100;
-                    plot(time_respiration, obj.resp_gt, 'r-', 'DisplayName', 'TFM Respiration'); 
+                    plot(time_respiration, obj.resp_gt, 'k-', 'DisplayName', 'TFM Respiration_GT'); 
             title(sprintf('Respiration Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             ylabel('Rel. Distance(mm)');
             xlabel('Time(s)');
