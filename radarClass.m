@@ -33,7 +33,7 @@ classdef radarClass < handle
         maeRaw
         maeFitted
         mse2HrRaw
-        mse2HrFinal
+        mse2HrFitted
 
         %additional information
         vTimeOriginal
@@ -124,8 +124,8 @@ classdef radarClass < handle
                 firL=LPF;
             end
             % Apply the filters to the decimated radar signal
-            obj.HrSignal = filter(firL, obj.radar_decimated);
-            obj.HrSignal = filter(firH, obj.HrSignal);
+            obj.HrSignal = filtfilt(firL, obj.radar_decimated);
+            obj.HrSignal = filtfilt(firH, obj.HrSignal);
         end
 
         %
@@ -150,7 +150,7 @@ classdef radarClass < handle
             firL=LPF;
             end
             % Apply the filters to the decimated radar signal
-            obj.RrSignal = filter(firL, obj.radar_decimated);
+            obj.RrSignal = filtfilt(firL, obj.radar_decimated);
             % obj.RrSignal = filter(firH, obj.RrSignal);
         end
         %finding the peaks and normalize to seconds
@@ -166,6 +166,7 @@ classdef radarClass < handle
             obj.HrPeaks = obj.HrPeaks / obj.fs_new;
             obj.RrPeaks = obj.RrPeaks / obj.fs_new;
             obj.ecgPeaks = obj.ecgPeaks / obj.fs_ecg;
+            % TODO: add peaks for GT Rr
         end
 
         % finding the rates
@@ -173,6 +174,7 @@ classdef radarClass < handle
             obj.HrEst = 60 ./  diff(obj.HrPeaks);
             obj.GtEst = 60 ./  diff(obj.ecgPeaks); 
             obj.RrEst = 60 ./  diff(obj.RrPeaks);
+             % TODO: add rates for GT Rr
             if(~isempty(obj.HrPeaksFinal))
                 obj.HrEstFinal = 60 ./  diff(obj.HrPeaksFinal);
             end
@@ -207,6 +209,49 @@ classdef radarClass < handle
             obj.correlated_HrPeaks = final;
             obj.HrGtMean = mean(final,2);
             obj.HrGtDiff = final(:,1) - final(:,2);
+        end
+        % function to find missing beats (positives)
+        function [additions] = findMissingBeats(obj)
+            if(isempty(obj.HrPeaksFinal))
+                obj.HrPeaksFinal=obj.HrPeaks;
+            end
+            hrvec = obj.HrPeaksFinal(:);
+            diffs= diff(obj.HrPeaksFinal);
+            additions = [];
+            sumAdded=0;
+            hrLen=length(diffs)+1;
+            % go over diffs, if we find a diff that is +-10% x2 than the
+            % ones before and after it, wwe missed a bit, make sure the
+            % others make sense and are in the HR range.
+            %{
+                [1 2 4 5] %missing between i=2 and i=3
+                [1 2 1] i=2 is sus
+                avg = (hrvec(i+sumAdded)+hrvec(i+1+sumAdded))/2
+                hrvec= [hrvec(1:i+sumAdded) (avg) hrvec(i+1+sumAdded:len)]
+                len += 1;
+                sumAdded +=1;
+                additions = [additions; avg i]
+                i+=1; 
+            %}
+            for i=2:length(diffs)-1
+                if(diffs(i)> 0.9*(diffs(i-1) +diffs(i+1)))... %find anomalies
+                     &&(diffs(i)>1.5*(diffs(i-1)&&diffs(i)>1.5*diffs(i+1)))...   
+                    && (diffs(i-1)>0.33&&diffs(i-1)<2) &&...
+                        (diffs(i+1)>0.33&&diffs(i+1)<2) &&... %make sure peaks are valid
+                        (diffs(i)>0.6 &&diffs(i)<4 )
+                        % add a peak equal to the average of the last two
+                        %peaks, and rearragne the vectors, choose new i 
+                        avg = (hrvec(i+sumAdded)+hrvec(i+1+sumAdded))/2;
+                        hrvec= [hrvec(1:i+sumAdded) ; (avg) ; hrvec(i+1+sumAdded:hrLen)];
+                        additions = [additions; i+1+sumAdded avg];
+                        hrLen = hrLen + 1;
+                        sumAdded = sumAdded+1;
+                        
+                    
+                end
+            end
+            obj.HrPeaksFinal = hrvec;
+
         end
         % function to find false positives independently for radar
         function [removals] = clearFalsePos(obj)
@@ -270,7 +315,7 @@ classdef radarClass < handle
             mseraw=v1.^2-v2.^2;
             obj.mseFitted = sum(mseraw);
             obj.maeFitted = sum(abs(v1-v2));
-            obj.mse2HrFinal = sortrows([v2, mseraw]); % N,2, acending error per beat rate
+            obj.mse2HrFitted = sortrows([v2, mseraw]); % N,2, acending error per beat rate
             
             %calculate the MSE, MAE, MRE between v1 and v2:
             
@@ -279,11 +324,263 @@ classdef radarClass < handle
             
         end
 
-        % plotting functions
+       % plotting functions       
+        %plot the Hr peaks and the signals
+       % function [] = plotHrpeaks(obj) % plot only the HRpeaks
+       % function [] = plotBA(obj) %plot BlandAltman plot
+       % function [] = plotRR(obj) % plots resipration rate plot 
+       % function [] plotDashBoard(obj) 
+            %plot the following 
+            % 1. radar heart signal after filter(with peaks), 
+            % 2. ecg refernce signal with peaks 
+            % 3.Heart rate comparison between the GT and the calculated IBI. (all three are linked axis.
+            % 4. bland altman plot 
         
-        %plot the Hr peaks and the signal
-        function [] = plotHrPeaks(obj)
+% ---------------------------------------------------------
+        % Plotting Functions
+        % ---------------------------------------------------------
+
+        %% Plot only the HR peaks and the signals (Radar vs ECG)
+        function h = plotHrpeaks(obj)
+            h = figure('Name', 'Radar_ECG_Peaks', 'Color', 'w');
             
+            % Subplot 1: Radar Signal
+            ax(1) = subplot(2,1,1);
+            hold on;
+            title(sprintf('Radar HR Filters & Peak Finder - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            
+            plot(obj.vTimeNew, obj.HrSignal*1e4, 'b', 'DisplayName', 'Filtered Radar');
+            
+            % Interpolate to find amplitude at peak times
+            if ~isempty(obj.HrPeaks)
+                peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks); 
+                plot(obj.HrPeaks, peakAmps*1e4, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
+            end
+            
+            ylabel('Amp (scaled)');
+            legend('show'); grid on; hold off;
+
+            % Subplot 2: ECG Reference
+            ax(2) = subplot(2,1,2);
+            hold on;
+            title(sprintf('ECG Reference Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            
+            plot(obj.vTimeOriginal, obj.ecg_gt, 'k', 'DisplayName', 'ECG Signal');
+            
+            if ~isempty(obj.ecgPeaks)
+                peakAmpsEcg = interp1(obj.vTimeOriginal, obj.ecg_gt, obj.ecgPeaks);
+                plot(obj.ecgPeaks, peakAmpsEcg, 'r*', 'MarkerSize', 8, 'DisplayName', 'ECG Peaks');
+            end
+            
+            xlabel('Time(s)'); ylabel('Amp');
+            legend('show'); grid on; hold off;
+            
+            linkaxes(ax, 'x');
+        end
+
+        %% Plot Bland-Altman plot
+        function h = plotBA(obj)
+            h = []; % Default empty if no data
+            % Check if estimates exist
+            if isempty(obj.HrEst) || isempty(obj.GtEst)
+                warning('HR Estimates are empty. Run FindRates() first.');
+                return;
+            end
+
+            h = figure('Name', 'Bland_Altman_Analysis', 'Color', 'w');
+            
+            % Sync lengths
+            min_len = min(length(obj.GtEst), length(obj.HrEst));
+            vec_ecg = obj.GtEst(1:min_len);
+            vec_radar = obj.HrEst(1:min_len);
+
+            if exist('BlandAltman', 'file')
+                BlandAltman(vec_ecg, vec_radar, 2, 0);
+            else
+                % Fallback
+                diffs = vec_ecg - vec_radar;
+                means = (vec_ecg + vec_radar) / 2;
+                plot(means, diffs, 'o');
+                yline(mean(diffs), '-r', 'Mean Diff');
+                yline(mean(diffs) + 1.96*std(diffs), '--r');
+                yline(mean(diffs) - 1.96*std(diffs), '--r');
+                xlabel('Mean of methods'); ylabel('Difference');
+            end
+            
+            title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+        end
+
+        %% Plots respiration rate signal
+        function h = plotRR(obj) 
+            h = figure('Name', 'Respiration_Signal', 'Color', 'w');
+            hold on;
+            
+            plot(obj.vTimeNew, obj.RrSignal*1000, 'r-', 'DisplayName', 'Radar Respiration');
+            if ~isempty(obj.resp_gt)
+                 % Assuming resp_gt matches vTimeNew or needs interpolation. 
+                 % If lengths differ, plotting might fail, so usually we need a time vector for GT or assume alignment.
+                 % Here assuming alignment based on previous code:
+                 plot(obj.vTimeNew, obj.resp_gt*1000, 'b-', 'DisplayName', 'TFM Respiration');           
+            end
+            
+            title(sprintf('Respiration Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            ylabel('Rel. Distance(mm)');
+            xlabel('Time(s)');
+            legend('show'); grid on; hold off;
+        end
+
+        %% Plot the full dashboard (Summary)
+        function h = plotDashBoard(obj) 
+            h = figure('Name', 'Summary_Dashboard', 'Units', 'normalized', 'Position', [0.1 0.1 0.6 0.8], 'Color', 'w');
+            
+            ax_link = [];
+
+            % 1. Radar Heart signal WITH PEAKS
+            ax_link(1) = subplot(4,1,1);
+            hold on;
+            plot(obj.vTimeNew, obj.HrSignal, 'b', 'DisplayName', 'Radar Signal');
+            if ~isempty(obj.HrPeaks)
+                peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks);
+                plot(obj.HrPeaks, peakAmps, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
+            end
+            title(sprintf('Radar Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            ylabel('Amp'); legend('show'); grid on; axis tight; hold off;
+
+            % 2. ECG reference WITH PEAKS
+            ax_link(2) = subplot(4,1,2);
+            hold on;
+            plot(obj.vTimeOriginal, obj.ecg_gt, 'k', 'DisplayName', 'ECG Signal');
+            if ~isempty(obj.ecgPeaks)
+                peakAmpsEcg = interp1(obj.vTimeOriginal, obj.ecg_gt, obj.ecgPeaks);
+                plot(obj.ecgPeaks, peakAmpsEcg, 'r*', 'MarkerSize', 8, 'DisplayName', 'QRS Peaks');
+            end
+            title(sprintf('ECG Reference - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            ylabel('Amp'); legend('show'); grid on; axis tight; hold off;
+
+            % 3. Heart Rate Comparison (BPM vs Time)
+            ax_link(3) = subplot(4,1,3);
+            hold on;
+            if ~isempty(obj.GtEst)
+                time_gt_bpm = obj.ecgPeaks(2:end); 
+                plot(time_gt_bpm, obj.GtEst, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'ECG GT');
+            end
+            if ~isempty(obj.HrEst)
+                time_radar_bpm = obj.HrPeaks(2:end);
+                plot(time_radar_bpm, obj.HrEst, 'b.--', 'LineWidth', 1.2, 'DisplayName', 'Radar Est');
+            end
+            title(sprintf('Heart Rate (BPM) - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            xlabel('Time (s)'); ylabel('BPM'); legend('Location', 'best'); grid on; axis tight; hold off;
+
+            % 4. Bland-Altman (NOT LINKED)
+            subplot(4,1,4);
+            if ~isempty(obj.GtEst) && ~isempty(obj.HrEst)
+                min_len = min(length(obj.GtEst), length(obj.HrEst));
+                vec_ecg = obj.GtEst(1:min_len);
+                vec_radar = obj.HrEst(1:min_len);
+                if exist('BlandAltman', 'file')
+                    BlandAltman(vec_ecg, vec_radar, 2, 0);
+                else
+                    plot(vec_ecg, vec_radar, 'o'); xlabel('ECG'); ylabel('Radar');
+                end
+                title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            end
+
+            linkaxes(ax_link, 'x');            
+        end
+
+        %% Save Figures
+        function [] = saveFigures(obj, figHandles, saveDir)
+             % Set default directory if not provided
+            if nargin < 3
+                saveDir = 'SavedAnalysisFigures';
+            end
+
+            % Filter out invalid handles
+            if isempty(figHandles)
+                fprintf('No figure handles provided for ID %s.\n', string(obj.ID));
+                return;
+            end
+
+            % Create directory if it doesn't exist
+            if ~exist(saveDir, 'dir')
+                mkdir(saveDir);
+                fprintf('Created save directory: %s\n', saveDir);
+            end
+
+            fprintf('Saving %d figures to: %s\n', length(figHandles), saveDir);
+
+            for i = 1:length(figHandles)
+                hFig = figHandles(i);
+                
+                % Use isgraphics to ensure it's a valid figure
+                if ~isgraphics(hFig)
+                    continue; 
+                end
+
+                % Get Name
+                figName = get(hFig, 'Name');
+                if isempty(figName)
+                    figName = sprintf('Figure%d', get(hFig, 'Number'));
+                end
+
+                % Clean filename
+                safeFigName = strrep(figName, ' ', '_');
+                safeFigName = regexprep(safeFigName, '[^a-zA-Z0-9_]', '');
+                
+                % Construct full filename: ID_Scenario_FigName
+                baseFileName = sprintf('%s_%s_%s', string(obj.ID), obj.sceneario, safeFigName);
+                
+                pngFileName = fullfile(saveDir, [baseFileName, '.png']);
+                figFileName = fullfile(saveDir, [baseFileName, '.fig']);
+
+                try
+                    saveas(hFig, pngFileName, 'png'); 
+                    saveas(hFig, figFileName, 'fig');
+                    fprintf('  -> Saved: %s\n', baseFileName);
+                catch ME
+                    fprintf(2, 'Warning: Could not save %s. Error: %s\n', baseFileName, ME.message);
+                end
+            end
+        end
+
+        %% Plot All and Optionally Save
+        function [] = plot_all_(obj, bsave, saveDir) 
+            % bsave - boolean: save all figures?
+            % saveDir - optional: string path to save folder
+            
+            if nargin < 3
+                saveDir = 'SavedAnalysisFigures';
+            end
+            if nargin < 2
+                bsave = false;
+            end
+
+            figHandles = gobjects(0); % Initialize empty graphics array
+
+            % Generate plots and collect handles
+            % 1. HR Peaks
+            h1 = obj.plotHrpeaks();
+            if isgraphics(h1), figHandles(end+1) = h1; end
+            
+            % 2. Respiration
+            h2 = obj.plotRR();
+            if isgraphics(h2), figHandles(end+1) = h2; end
+
+            % 3. Bland Altman (only if data exists)
+            h3 = obj.plotBA();
+            if isgraphics(h3), figHandles(end+1) = h3; end
+
+            % 4. Dashboard
+            h4 = obj.plotDashBoard();
+            if isgraphics(h4), figHandles(end+1) = h4; end
+
+            % Save if requested
+            if bsave
+                obj.saveFigures(figHandles, saveDir);
+                
+                % Optional: Close figures after saving to prevent memory buildup during loops
+                % close(figHandles); 
+            end
         end
     end
 end

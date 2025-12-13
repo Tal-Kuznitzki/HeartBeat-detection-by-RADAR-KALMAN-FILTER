@@ -11,16 +11,18 @@ radarObj.FindPeaks();
 radarObj.FindRates();
 HrB4Corr=radarObj.HrEst;
 RrB4Corr=radarObj.RrEst;
+additions = radarObj.findMissingBeats();
 removals=radarObj.clearFalsePos();
 [missed,excess]=radarObj.CorrelatePeaks();
+additions = radarObj.findMissingBeats();
 radarObj.FindRates();
-HrCorr=radarObj.HrEst;
+HrCorr=radarObj.HrEstFinal;
 newTime= radarObj.vTimeNew(removals==0);
 newTime = 200*newTime(1:length(newTime)-1);
 figure;hold on;
 
 plot(HrB4Corr,'DisplayName',"before")
-plot(newTime,HrCorr,'DisplayName',"after")
+plot(HrCorr,'DisplayName',"after")
 plot(radarObj.GtEst,'DisplayName',"GT");
  legend('show');
  hold off;
