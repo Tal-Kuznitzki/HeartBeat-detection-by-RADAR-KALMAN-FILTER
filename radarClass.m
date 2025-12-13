@@ -137,7 +137,7 @@ classdef radarClass < handle
         end
 
         %
-        function RrFilter(obj, LPF) %currently without highpass. maybe pass through median filter. %TODO use outside filter so we wont
+        function RrFilter(obj, LPF, HPF) %currently without highpass. maybe pass through median filter. %TODO use outside filter so we wont
         % designfilt each iteration
           if nargin < 2
                 LPF = [];
@@ -156,10 +156,11 @@ classdef radarClass < handle
                 'SampleRate',obj.fs_new);
             else
             firL=LPF;
+            firH=HPF;
             end
             % Apply the filters to the decimated radar signal
             obj.RrSignal = filtfilt(firL, obj.radar_decimated);
-            % obj.RrSignal = filter(firH, obj.RrSignal);
+            obj.RrSignal = filtfilt(firH, obj.RrSignal);
         end
         %finding the peaks and normalize to seconds
         function FindPeaks(obj)
@@ -168,10 +169,10 @@ classdef radarClass < handle
             [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakHeight",...
         thresholdHr,'MinPeakDistance',0.33*obj.fs_new);
             [~,obj.RrPeaks, ~,~] = findpeaks(obj.RrSignal, "MinPeakHeight",...
-        thresholdRr,'MinPeakDistance',0.33*obj.fs_new);
+        thresholdRr,'MinPeakDistance',2*obj.fs_new);
             [~,obj.ecgPeaks,~] = pan_tompkin(obj.ecg_gt,obj.fs_ecg,0); 
             [~,obj.Rrpeaks_gt, ~,~] = findpeaks(obj.resp_gt, "MinPeakHeight",...
-        thresholdRr,'MinPeakDistance',0.33*(obj.fs_new/2.5));
+        thresholdRr,'MinPeakDistance',2*(obj.fs_new/2.5));
 
             
             obj.HrPeaks = obj.HrPeaks / obj.fs_new;
@@ -431,22 +432,43 @@ classdef radarClass < handle
         %% Plots respiration rate signal
         function h = plotRR(obj) 
             h = figure('Name', 'Respiration_Signal', 'Color', 'w');
+            ax(1) = subplot(3,1,1);
             hold on;
-            plot(obj.RrEst, 'r-', 'DisplayName', 'Radar Respiration');
+            title(sprintf('Respiration rate comparison - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+           
+            plot(obj.RrEst, 'b-', 'DisplayName', 'Radar Respiration');
+
+
             if ~isempty(obj.resp_gt)
                  % Assuming resp_gt matches vTimeNew or needs interpolation. 
                  % If lengths differ, plotting might fail, so usually we need a time vector for GT or assume alignment.
                  % Here assuming alignment based on previous code:
-                 plot(obj.RrGtEst, 'b-', 'DisplayName', 'TFM Respiration');           
+                 plot(obj.RrGtEst, 'r-', 'DisplayName', 'TFM Respiration');           
             end
-                    time_respiration = 1/fs_z0:1/100:length(obj.resp_gt)/100;
-                    plot(time_respiration, obj.resp_gt, 'k-', 'DisplayName', 'TFM Respiration_GT'); 
-            title(sprintf('Respiration Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+
+            ax(2) = subplot(3,1,2);
+            hold on;
+            title(sprintf('respiration signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            
+            time_respiration = 1/100:1/100:length(obj.resp_gt)/100;
+
+            
+            plot(obj.vTimeNew, obj.RrSignal, 'b-', 'MarkerSize', 8, 'DisplayName', 'respiration signal');
+            peakAmps = interp1(obj.vTimeNew, obj.RrSignal, obj.RrPeaks);
+            plot(obj.RrPeaks, peakAmps, 'k*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
+
+            ax(3) = subplot(3,1,3);
+            hold on;
+            title(sprintf('respiration signal Ground truth - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+
+            plot(time_respiration, obj.resp_gt, 'r-', 'MarkerSize', 8, 'DisplayName', 'respiration signal');
+            peakAmps = interp1(time_respiration, obj.resp_gt, obj.Rrpeaks_gt);
+            plot(obj.Rrpeaks_gt, peakAmps , 'k*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
             ylabel('Rel. Distance(mm)');
             xlabel('Time(s)');
-            legend('show'); grid on; hold off;
+            legend('show'); grid on; hold off;          
+            linkaxes(ax, 'x');
         end
-
         %% Plot the full dashboard (Summary)
         function h = plotDashBoard(obj) 
             h = figure('Name', 'Summary_Dashboard', 'Units', 'normalized', 'Position', [0.1 0.1 0.6 0.8], 'Color', 'w');
@@ -513,6 +535,7 @@ classdef radarClass < handle
             subplot(1,1,1);
             hold on;
             grid on;
+            title(sprintf('Error/HR from ECG - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             plot(obj.mse2HrFitted(:,1),obj.mse2HrFitted(:,2),".",'Color', 'k');
 fprintf('------------------------------------------------\n');
             fprintf('Error Analysis for ID: %d, Scenario: %s\n', obj.ID, obj.sceneario);
