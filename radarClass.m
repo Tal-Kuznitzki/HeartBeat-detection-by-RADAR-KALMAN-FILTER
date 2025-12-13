@@ -177,7 +177,7 @@ classdef radarClass < handle
             obj.HrPeaks = obj.HrPeaks / obj.fs_new;
             obj.RrPeaks = obj.RrPeaks / obj.fs_new;
             obj.ecgPeaks = obj.ecgPeaks / obj.fs_ecg;
-            obj.Rrpeaks_gt = obj.Rrpeaks_gt /(obj.fs_ecg/2.5);
+            obj.Rrpeaks_gt = obj.Rrpeaks_gt /(100);
         end
 
         % finding the rates
@@ -221,7 +221,7 @@ classdef radarClass < handle
             obj.HrGtMean = mean(final,2);
             obj.HrGtDiff = final(:,1) - final(:,2);
             obj.correlation_misses=nnz( missed(:,1) ) ;
-            obj.correlation_excess = size(excess,1) - nnz(excess(:,1)) ;
+            obj.correlation_excess = sum(excess(:,1)) ;
             
         end
         % function to find missing beats (positives)
@@ -322,17 +322,17 @@ classdef radarClass < handle
             v1=obj.HrEstFinal(1:min_len);
             v2=obj.HrGtEst(1:min_len);
             v2=v2(:);
-            mseraw=v1.^2-v2.^2;
+            mseraw= (v1-v2).^2;
             obj.mseRaw = sum(mseraw);
             obj.maeRaw = sum(abs(v1-v2));
             obj.mse2HrRaw = sortrows([v2, mseraw]); % N,2, acending error per beat rate
             
-            v1=obj.correlated_HrPeaks(:,1);
-            v2=obj.correlated_HrPeaks(:,2);
-            mseraw=v1.^2-v2.^2;
+            v1= 60 ./ diff(obj.correlated_HrPeaks(:,1) );% first colum is GT in this matrix
+            v2= 60 ./ diff(obj.correlated_HrPeaks(:,2) );
+            mseraw=(v1-v2).^2;
             obj.mseFitted = sum(mseraw);
             obj.maeFitted = sum(abs(v1-v2));
-            obj.mse2HrFitted = sortrows([v2, mseraw]); % N,2, acending error per beat rate
+            obj.mse2HrFitted = sortrows([v1, mseraw]); % N,2, acending error per beat rate
             
             %calculate the MSE, MAE, MRE between v1 and v2:
             
@@ -439,7 +439,8 @@ classdef radarClass < handle
                  % Here assuming alignment based on previous code:
                  plot(obj.RrGtEst, 'b-', 'DisplayName', 'TFM Respiration');           
             end
-            
+                    time_respiration = 1/fs_z0:1/100:length(obj.resp_gt)/100;
+                    plot(time_respiration, obj.resp_gt, 'r-', 'DisplayName', 'TFM Respiration'); 
             title(sprintf('Respiration Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             ylabel('Rel. Distance(mm)');
             xlabel('Time(s)');
@@ -512,7 +513,7 @@ classdef radarClass < handle
             subplot(1,1,1);
             hold on;
             grid on;
-            plot(obj.mse2HrFitted(:,1),obj.mse2HrFitted(:,2),'Color', 'k');
+            plot(obj.mse2HrFitted(:,1),obj.mse2HrFitted(:,2),".",'Color', 'k');
 fprintf('------------------------------------------------\n');
             fprintf('Error Analysis for ID: %d, Scenario: %s\n', obj.ID, obj.sceneario);
             fprintf('Mean Absolute Error (MAE) -> RAW: %.2f | Fitted: %.2f\n', obj.maeRaw, obj.maeFitted);
