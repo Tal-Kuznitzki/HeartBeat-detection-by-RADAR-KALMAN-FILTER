@@ -1,4 +1,3 @@
-% this is a class for the signal and it's relevant information:
 classdef radarClass < handle
     properties
         %instance details
@@ -37,6 +36,8 @@ classdef radarClass < handle
         maeFitted
         mse2HrRaw
         mse2HrFitted
+        mae2HrFitted
+        error2sSorted
         correlation_misses
         correlation_excess
 
@@ -275,7 +276,7 @@ classdef radarClass < handle
             end
             % go over obj.HrPeaks, find beats that their diff is suspicous
             diffs= diff(obj.HrPeaksFinal);
-            removals= zeros(size(obj.HrPeaksFinal));
+            removals = zeros(size(obj.HrPeaksFinal));
             for i=2:length(diffs)-2
                 %scenario 1: single phase shift
                 %scenario 2: false positive
@@ -297,6 +298,12 @@ classdef radarClass < handle
                 
             end %end of loop
             obj.HrPeaksFinal= obj.HrPeaksFinal(obj.HrPeaksFinal>0); %remove removed beats 
+            
+            if length(obj.HrPeaksFinal) < 3
+                return; % Not enough peaks to continue analysis
+            end
+            diffs = diff(obj.HrPeaksFinal);
+            
             for i=2:length(diffs)-2
                 %scenario 1: single phase shift:
                  minI=max(2,i-10);
@@ -328,14 +335,20 @@ classdef radarClass < handle
             obj.maeRaw = sum(abs(v1-v2));
             obj.mse2HrRaw = sortrows([v2, mseraw]); % N,2, acending error per beat rate
             
-            v1= 60 ./ diff(obj.correlated_HrPeaks(:,1) );% first colum is GT in this matrix
-            v2= 60 ./ diff(obj.correlated_HrPeaks(:,2) );
-            mseraw=(v1-v2).^2;
-            obj.mseFitted = sum(mseraw);
-            obj.maeFitted = sum(abs(v1-v2));
-            obj.mse2HrFitted = sortrows([v1, mseraw]); % N,2, acending error per beat rate
+            v1_gt= 60 ./ diff(obj.correlated_HrPeaks(:,1) );% first colum is GT in this matrix
+            v2_radar= 60 ./ diff(obj.correlated_HrPeaks(:,2) );
             
-            %calculate the MSE, MAE, MRE between v1 and v2:
+            raw_err = v1_gt-v2_radar;
+            mseraw=(raw_err).^2;
+            abs_err = abs(raw_err);
+            
+
+            obj.mseFitted = sum(mseraw);
+            obj.maeFitted = sum(abs_err);
+            obj.mse2HrFitted = sortrows([v1_gt, mseraw]); % N,2, acending error per beat rate
+            obj.error2sSorted = sortrows([v1_gt, raw_err]); 
+            obj.mae2HrFitted = sortrows([v1_gt, abs_err] );
+            
             
 
 
@@ -376,7 +389,7 @@ classdef radarClass < handle
             end
             
             ylabel('Amp (scaled)');
-            legend('show'); grid on; hold off;
+            legend('show', 'Location', 'best'); grid on; hold off;
 
             % Subplot 2: ECG Reference
             ax(2) = subplot(2,1,2);
@@ -391,7 +404,7 @@ classdef radarClass < handle
             end
             
             xlabel('Time(s)'); ylabel('Amp');
-            legend('show'); grid on; hold off;
+            legend('show', 'Location', 'best'); grid on; hold off;
             
             linkaxes(ax, 'x');
         end
@@ -419,57 +432,81 @@ classdef radarClass < handle
                 % Fallback
                 diffs = vec_ecg - vec_radar;
                 means = (vec_ecg + vec_radar) / 2;
-                plot(means, diffs, 'o');
-                yline(mean(diffs), '-r', 'Mean Diff');
-                yline(mean(diffs) + 1.96*std(diffs), '--r');
-                yline(mean(diffs) - 1.96*std(diffs), '--r');
+                plot(means, diffs, 'o', 'DisplayName', 'Data Points');
+                hold on;
+                yline(mean(diffs), '-r', 'Mean Diff', 'DisplayName', 'Mean Difference');
+                yline(mean(diffs) + 1.96*std(diffs), '--r', 'DisplayName', '+1.96 SD');
+                yline(mean(diffs) - 1.96*std(diffs), '--r', 'DisplayName', '-1.96 SD');
                 xlabel('Mean of methods'); ylabel('Difference');
+                legend('show', 'Location', 'best');
+                hold off;
             end
             
             title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
         end
 
-        %% Plots respiration rate signal
-        function h = plotRR(obj) 
-            h = figure('Name', 'Respiration_Signal', 'Color', 'w');
-            ax(1) = subplot(3,1,1);
+       %% Plots respiration rate signal (Split into 2 Figures)
+            %% Plot Respiration Rates (Trends)
+        function h = plotRrRates(obj)
+            h = figure('Name', 'Respiration_Rates', 'Color', 'w');
             hold on;
-            title(sprintf('Respiration rate comparison - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            title(sprintf('Respiration Rate Comparison - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
            
-            plot(obj.RrEst, 'b-', 'DisplayName', 'Radar Respiration');
-
-
-            if ~isempty(obj.resp_gt)
-                 % Assuming resp_gt matches vTimeNew or needs interpolation. 
-                 % If lengths differ, plotting might fail, so usually we need a time vector for GT or assume alignment.
-                 % Here assuming alignment based on previous code:
-                 plot(obj.RrGtEst, 'r-', 'DisplayName', 'TFM Respiration');           
+            if ~isempty(obj.RrEst)
+                plot(obj.RrEst, 'b.-', 'LineWidth', 1.5, 'DisplayName', 'Radar Respiration');
             end
 
-            ax(2) = subplot(3,1,2);
-            hold on;
-            title(sprintf('respiration signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            if ~isempty(obj.RrGtEst)
+                 plot(obj.RrGtEst, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'TFM Respiration');           
+            end
             
+            ylabel('Breaths Per Minute'); 
+            xlabel('Window Index / Time');
+            legend('show', 'Location', 'best'); 
+            grid on; hold off;
+        end
+
+        %% Plot Respiration Signals (Time Domain)
+        function h = plotRrSignals(obj)
+            h = figure('Name', 'Respiration_Signals_Comparison', 'Color', 'w');
+            
+            ax = [];
+            
+            % Subplot 1: Radar Respiration Signal
+            ax(1) = subplot(2,1,1);
+            hold on;
+            title(sprintf('Radar Respiration Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            
+            plot(obj.vTimeNew, obj.RrSignal, 'b-', 'DisplayName', 'Respiration Signal');
+            if ~isempty(obj.RrPeaks)
+                peakAmps = interp1(obj.vTimeNew, obj.RrSignal, obj.RrPeaks);
+                plot(obj.RrPeaks, peakAmps, 'k*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
+            end
+            ylabel('Amp (Radar)');
+            legend('show', 'Location', 'best'); grid on; hold off;
+
+            % Subplot 2: GT Respiration Signal
+            ax(2) = subplot(2,1,2);
+            hold on;
+            title(sprintf('GT Respiration Signal (TFM) - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+
+            % Create time vector for GT if not stored
             time_respiration = 1/100:1/100:length(obj.resp_gt)/100;
-
             
-            plot(obj.vTimeNew, obj.RrSignal, 'b-', 'MarkerSize', 8, 'DisplayName', 'respiration signal');
-            peakAmps = interp1(obj.vTimeNew, obj.RrSignal, obj.RrPeaks);
-            plot(obj.RrPeaks, peakAmps, 'k*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
-
-            ax(3) = subplot(3,1,3);
-            hold on;
-            title(sprintf('respiration signal Ground truth - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
-
-            plot(time_respiration, obj.resp_gt, 'r-', 'MarkerSize', 8, 'DisplayName', 'respiration signal');
-            peakAmps = interp1(time_respiration, obj.resp_gt, obj.Rrpeaks_gt);
-            plot(obj.Rrpeaks_gt, peakAmps , 'k*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
+            plot(time_respiration, obj.resp_gt, 'r-', 'DisplayName', 'GT Signal');
+            if ~isempty(obj.Rrpeaks_gt)
+                peakAmps = interp1(time_respiration, obj.resp_gt, obj.Rrpeaks_gt);
+                plot(obj.Rrpeaks_gt, peakAmps , 'k*', 'MarkerSize', 8, 'DisplayName', 'GT Peaks');
+            end
+            
             ylabel('Rel. Distance(mm)');
             xlabel('Time(s)');
-            legend('show'); grid on; hold off;          
+            legend('show', 'Location', 'best'); grid on; hold off;          
+            
             linkaxes(ax, 'x');
-        end
-        %% Plot the full dashboard (Summary)
+        end    
+
+       %% Plot the full dashboard (Summary)
         function h = plotDashBoard(obj) 
             h = figure('Name', 'Summary_Dashboard', 'Units', 'normalized', 'Position', [0.1 0.1 0.6 0.8], 'Color', 'w');
             
@@ -484,7 +521,7 @@ classdef radarClass < handle
                 plot(obj.HrPeaks, peakAmps, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
             end
             title(sprintf('Radar Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
-            ylabel('Amp'); legend('show'); grid on; axis tight; hold off;
+            ylabel('Amp'); legend('show', 'Location', 'best'); grid on; axis tight; hold off;
 
             % 2. ECG reference WITH PEAKS
             ax_link(2) = subplot(4,1,2);
@@ -495,7 +532,7 @@ classdef radarClass < handle
                 plot(obj.ecgPeaks, peakAmpsEcg, 'r*', 'MarkerSize', 8, 'DisplayName', 'QRS Peaks');
             end
             title(sprintf('ECG Reference - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
-            ylabel('Amp'); legend('show'); grid on; axis tight; hold off;
+            ylabel('Amp'); legend('show', 'Location', 'best'); grid on; axis tight; hold off;
 
             % 3. Heart Rate Comparison (BPM vs Time)
             ax_link(3) = subplot(4,1,3);
@@ -509,7 +546,7 @@ classdef radarClass < handle
                 plot(time_radar_bpm, obj.HrEst, 'b.--', 'LineWidth', 1.2, 'DisplayName', 'Radar Est');
             end
             title(sprintf('Heart Rate (BPM) - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
-            xlabel('Time (s)'); ylabel('BPM'); legend('Location', 'best'); grid on; axis tight; hold off;
+            xlabel('Time (s)'); ylabel('BPM'); legend('show', 'Location', 'best'); grid on; axis tight; hold off;
 
             % 4. Bland-Altman (NOT LINKED)
             subplot(4,1,4);
@@ -522,7 +559,9 @@ classdef radarClass < handle
                 if exist('BlandAltman', 'file')
                    BlandAltman(Hr_gt_after_corr_fix, Hr_after_corr_fix, 2, 0);
                 else
-                    plot(vec_ecg, vec_radar, 'o'); xlabel('ECG'); ylabel('Radar');
+                    plot(vec_ecg, vec_radar, 'o', 'DisplayName', 'Data Points'); 
+                    xlabel('ECG'); ylabel('Radar');
+                    legend('show', 'Location', 'best');
                 end
                 title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             end
@@ -530,14 +569,46 @@ classdef radarClass < handle
             linkaxes(ax_link, 'x');            
         end
 %% Plot Error Analysis (Corrected Titles)
-        function h = plotErrors(obj)
+    function h = plotErrors(obj)
             h = figure('Name', 'HR_Error_Analysis', 'Color', 'w');
-            subplot(1,1,1);
-            hold on;
-            grid on;
-            title(sprintf('Error/HR from ECG - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
-            plot(obj.mse2HrFitted(:,1),obj.mse2HrFitted(:,2),".",'Color', 'k');
-fprintf('------------------------------------------------\n');
+            
+            % --- Subplot 1: Raw Error vs HR ---
+            subplot(3,1,1);
+            hold on; grid on;
+            if ~isempty(obj.error2sSorted)
+                plot(obj.error2sSorted(:,1), obj.error2sSorted(:,2), 'ko', 'MarkerFaceColor', 'b', 'MarkerSize', 4);
+            end
+            yline(0, 'r--', 'LineWidth', 1.5);
+            % Updated Title with ID and Scenario
+            title(sprintf('Raw Error (Bias) vs ECG HR - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            ylabel('Error (BPM)');
+            legend('Raw Error', 'Zero Line', 'Location', 'best');
+            
+            % --- Subplot 2: Absolute Error vs HR (The "MAE" request) ---
+            subplot(3,1,2);
+            hold on; grid on;
+            if ~isempty(obj.mae2HrFitted)
+                plot(obj.mae2HrFitted(:,1), obj.mae2HrFitted(:,2), 'ko', 'MarkerFaceColor', 'g', 'MarkerSize', 4);
+            end
+            % Updated Title with ID and Scenario
+            title(sprintf('Absolute Error (Magnitude) vs ECG HR - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            ylabel('|Error| (BPM)');
+            yline(mean(obj.mae2HrFitted(:,2)), 'm--', 'DisplayName', 'Mean (MAE)');
+            legend('Abs Error', 'MAE Level', 'Location', 'best');
+
+            % --- Subplot 3: Squared Error vs HR (MSE) ---
+            subplot(3,1,3);
+            hold on; grid on;
+            if ~isempty(obj.mse2HrFitted)
+                plot(obj.mse2HrFitted(:,1), obj.mse2HrFitted(:,2), 'ko', 'MarkerFaceColor', 'r', 'MarkerSize', 4);
+            end
+            % Updated Title with ID and Scenario
+            title(sprintf('Squared Error (Outliers) vs ECG HR - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            xlabel('ECG Heart Rate (BPM)');
+            ylabel('Error^2');
+            
+            % Print Stats
+            fprintf('------------------------------------------------\n');
             fprintf('Error Analysis for ID: %d, Scenario: %s\n', obj.ID, obj.sceneario);
             fprintf('Mean Absolute Error (MAE) -> RAW: %.2f | Fitted: %.2f\n', obj.maeRaw, obj.maeFitted);
             fprintf('Mean Squared Error (MSE)  -> RAW: %.2f | Fitted: %.2f\n', obj.mseRaw, obj.mseFitted);
@@ -623,20 +694,22 @@ fprintf('------------------------------------------------\n');
             if isgraphics(h1), figHandles(end+1) = h1; end
             
             % 2. Respiration
-            h2 = obj.plotRR();
+            h2 = obj.plotRrRates();
             if isgraphics(h2), figHandles(end+1) = h2; end
-
-            % 3. Bland Altman (only if data exists)
-            h3 = obj.plotBA();
+            h3 = obj.plotRrSignals();
             if isgraphics(h3), figHandles(end+1) = h3; end
 
-            % 4. Dashboard
-            h4 = obj.plotDashBoard();
+            % 3. Bland Altman (only if data exists)
+            h4 = obj.plotBA();
             if isgraphics(h4), figHandles(end+1) = h4; end
 
-            % 5. Error Analysis
-            h5 = obj.plotErrors();
+            % 4. Dashboard
+            h5 = obj.plotDashBoard();
             if isgraphics(h5), figHandles(end+1) = h5; end
+
+            % 5. Error Analysis
+            h6 = obj.plotErrors();
+            if isgraphics(h6), figHandles(end+1) = h6; end
 
             % Save if requested
             if bsave
@@ -648,5 +721,3 @@ fprintf('------------------------------------------------\n');
         end
     end
 end
-
-
