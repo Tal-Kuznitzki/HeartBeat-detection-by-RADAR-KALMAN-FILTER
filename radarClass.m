@@ -59,7 +59,7 @@ classdef radarClass < handle
         % constructor: call when making a new object
         function obj = radarClass(ID,scenario,fs,ecg,radar_i, radar_q,gt_resp)
             arguments
-                ID {mustBeNonnegative}                 
+                ID            
                 scenario (1,1) string {mustBeMember(scenario, ["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"])} 
                 fs {mustBeNonnegative}
                 ecg {mustBeColumn}
@@ -70,7 +70,7 @@ classdef radarClass < handle
                  %TODO : create the process for getting TFM_respiration
 
             %similliar to getvitalsigns() instead of getting it directly
-            obj.ID = ID;
+            obj.ID = string(ID);
             obj.fs_radar = fs;
             obj.fs_ecg = fs;
             obj.sceneario = scenario;
@@ -197,6 +197,7 @@ classdef radarClass < handle
         % also returns a vector with missed beats and their offset,
         % and a vector of false positives
         function [missed,excess] = CorrelatePeaks(obj)
+                     
             if(isempty(obj.HrPeaksFinal))
                 obj.HrPeaksFinal=obj.HrPeaks;
             end
@@ -331,8 +332,8 @@ classdef radarClass < handle
             v2=obj.HrGtEst(1:min_len);
             v2=v2(:);
             mseraw= (v1-v2).^2;
-            obj.mseRaw = sum(mseraw);
-            obj.maeRaw = sum(abs(v1-v2));
+            obj.mseRaw = mean(mseraw);
+            obj.maeRaw = mean(abs(v1-v2));
             obj.mse2HrRaw = sortrows([v2, mseraw]); % N,2, acending error per beat rate
             
             v1_gt= 60 ./ diff(obj.correlated_HrPeaks(:,1) );% first colum is GT in this matrix
@@ -343,8 +344,8 @@ classdef radarClass < handle
             abs_err = abs(raw_err);
             
 
-            obj.mseFitted = sum(mseraw);
-            obj.maeFitted = sum(abs_err);
+            obj.mseFitted = mean(mseraw);
+            obj.maeFitted = mean(abs_err);
             obj.mse2HrFitted = sortrows([v1_gt, mseraw]); % N,2, acending error per beat rate
             obj.error2sSorted = sortrows([v1_gt, raw_err]); 
             obj.mae2HrFitted = sortrows([v1_gt, abs_err] );
@@ -482,7 +483,7 @@ classdef radarClass < handle
                 peakAmps = interp1(obj.vTimeNew, obj.RrSignal, obj.RrPeaks);
                 plot(obj.RrPeaks, peakAmps, 'k*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
             end
-            ylabel('Amp (Radar)');
+            ylabel('Rel. Distance(mm)');
             legend('show', 'Location', 'best'); grid on; hold off;
 
             % Subplot 2: GT Respiration Signal
@@ -609,7 +610,7 @@ classdef radarClass < handle
             
             % Print Stats
             fprintf('------------------------------------------------\n');
-            fprintf('Error Analysis for ID: %d, Scenario: %s\n', obj.ID, obj.sceneario);
+            fprintf('Error Analysis for ID: %s, Scenario: %s\n', obj.ID, obj.sceneario);
             fprintf('Mean Absolute Error (MAE) -> RAW: %.2f | Fitted: %.2f\n', obj.maeRaw, obj.maeFitted);
             fprintf('Mean Squared Error (MSE)  -> RAW: %.2f | Fitted: %.2f\n', obj.mseRaw, obj.mseFitted);
             fprintf('# Missed beats: %d\n', obj.correlation_misses);
