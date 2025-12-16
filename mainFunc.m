@@ -25,8 +25,8 @@ b_plot_ALL = true;
 
 
 
-IDrange = 1:2 ; %11:12;   
-scenarios = {'Resting','Valsalva'}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
+IDrange = 29:30 ; %11:12;   
+scenarios ={'Resting','Valsalva'};% {'Resting','Valsalva','Apnea','Tilt-down','Tilt-up'}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
@@ -94,7 +94,7 @@ for indx = 1:length(IDrange)
         
 %% 4. initial Radar processing
  %%% TODO: get our own radar_dist
-      dataFull{indx,sz} = radarClass(indx,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration);
+      dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration);
       
 %% 5. frequency domain processing
         tic
