@@ -25,6 +25,9 @@ classdef radarClass < handle
         %results
         HrEst
         HrEstFinal
+        HrEstSpikes
+        excessLocsFromHr
+        missingLocsFromHr
         RrEst
         HrGtEst
         RrGtEst
@@ -271,11 +274,19 @@ classdef radarClass < handle
 
         end
         % function to fix hr spikes on the hrEst
-        function [missingBeats, excessBeats] = FindHrSpike(obj)
+        function [missingBeats, excessBeats] = FindHrSpikes(obj,norm)
+            % this function finds anomalies:
+            % excess peaks removed
+            % missing peaks added
+            % high jitter reduced
+            % input: power of jitter reduction (N/N+1)
+            % output: Nx2 of excess or missing beats, 
+            % first col for old index and 2nd col for new
+
             hr = obj.HrEst;
             N  = length(hr);
             sizeDiff=0;
-            for i=2:N-1
+            for i=2:N-2
                 % check if hr is out of bounds, if its too low, or 
                 % irregularly low, we are missing a beat, 
                 % double the value and concatenate a copy
@@ -283,26 +294,44 @@ classdef radarClass < handle
                 % 
                 % if its too high, or irregularly high,
                 % remove this sample. 
-                % low
+                
                 missingBeats = [];
                 excessBeats = [];
                 effI= i+sizeDiff;
-                if ( hr(effI)<35 || hr(effI)<0.6*(hr(effI-1)+hr(effI+1)))
+                %high
+                if (hr(effI) > 180 || hr(effI)+hr(effI+1)>1.7*(hr(effI-1)+hr(effI+2)))&&...
+                    (hr(effI) > hr(effI-1) && hr(effI) > hr(effI+2))...
+                    && (hr(effI+1) > hr(effI-1) && hr(effI+1) > hr(effI+2))
 
-                    hr(effI) = (hr(effI-1)+hr(effI+1))/2;
-                    hr = [hr(1:effI);hr(effI);hr(effI+1:N+effI)];
-                    sizeDiff=sizeDiff+1;
-                    missingBeats = [missingBeats; i , effI];
+                    hr = [hr(1:effI-1);1/(1/(hr(effI)) + 1/(hr(effI+1)));...
+                                                hr(effI+2:N+sizeDiff)];
+                    sizeDiff=sizeDiff-1;
+                    excessBeats = [excessBeats ; i , effI-1]; 
                     continue;
                 end
-                %high
-                if (hr(i) > 180 || hr(i)>1.8*(hr(i-1)+hr(i+1)))
-                    hr = [hr(1:effI-1);hr(effI+1:N+effI)];
-                    sizeDiff=sizeDiff-1;
-                    excessBeats = [excessBeats ; i , effI];
-                end
-            end
+                %find high var couple to skip
+                if(hr(effI)<0.65*hr(effI-1) && hr(effI+1)>1.35*hr(effI+2)) ||...
+                  (hr(effI)>1.35*hr(effI-1) && hr(effI+1)<0.65*hr(effI+2))
+                    
+                    hr(effI)   = (norm*hr(effI-1) + hr(effI))  /(norm+1);
+                    hr(effI+1) = (norm*hr(effI+2) + hr(effI+1))/(norm+1);
 
+                    continue;
+                end
+                %low
+                if ( hr(effI)<35 || hr(effI)<0.55*(hr(effI-1)+hr(effI+1))/2)
+                    % TODO, check if irregular high caused this
+                    hr(effI) = (hr(effI-1)+hr(effI+1))/2;
+                    hr = [hr(1:effI);hr(effI);hr(effI+1:N+sizeDiff)];
+                    sizeDiff=sizeDiff+1;
+                    missingBeats = [missingBeats; i , effI+1];
+                    continue;
+                end
+                
+            end
+            obj.excessLocsFromHr = excessBeats;
+            obj.missingLocsFromHr = missingBeats;
+            obj.HrEstSpikes = hr;
         end
         % function to find false positives independently for radar
         function [removals] = clearFalsePos(obj)
