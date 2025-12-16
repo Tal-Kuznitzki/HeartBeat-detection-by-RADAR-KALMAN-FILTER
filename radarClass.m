@@ -269,6 +269,40 @@ classdef radarClass < handle
             obj.HrPeaksFinal = hrvec;
 
         end
+        % function to fix hr spikes on the hrEst
+        function [missingBeats, excessBeats] = FindHrSpike(obj)
+            hr = obj.HrEst;
+            N  = length(hr);
+            sizeDiff=0;
+            for i=2:N-1
+                % check if hr is out of bounds, if its too low, or 
+                % irregularly low, we are missing a beat, 
+                % double the value and concatenate a copy
+                % of it.
+                % 
+                % if its too high, or irregularly high,
+                % remove this sample. 
+                % low
+                missingBeats = [];
+                excessBeats = [];
+                effI= i+sizeDiff;
+                if ( hr(effI)<35 || hr(effI)<0.6*(hr(effI-1)+hr(effI+1)))
+
+                    hr(effI) = (hr(effI-1)+hr(effI+1))/2;
+                    hr = [hr(1:effI);hr(effI);hr(effI+1:N+effI)];
+                    sizeDiff=sizeDiff+1;
+                    missingBeats = [missingBeats; i , effI];
+                    continue;
+                end
+                %high
+                if (hr(i) > 180 || hr(i)>1.8*(hr(i-1)+hr(i+1)))
+                    hr = [hr(1:effI-1);hr(effI+1:N+effI)];
+                    sizeDiff=sizeDiff-1;
+                    excessBeats = [excessBeats ; i , effI];
+                end
+            end
+
+        end
         % function to find false positives independently for radar
         function [removals] = clearFalsePos(obj)
              if(isempty(obj.HrPeaksFinal))
