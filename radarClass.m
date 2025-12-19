@@ -199,7 +199,7 @@ classdef radarClass < handle
         % align HR detected peaks to gt peaks- validation
         % also returns a vector with missed beats and their offset,
         % and a vector of false positives
-        function [missed,excess] = CorrelatePeaks(obj)
+        function [missed,excess] = CorrelatePeaks(obj) %% correlated_HrPeaks
                      
             if(isempty(obj.HrPeaksFinal))
                 obj.HrPeaksFinal=obj.HrPeaks;
@@ -231,7 +231,7 @@ classdef radarClass < handle
             
         end
         % function to find missing beats (positives)
-        function [additions] = findMissingBeats(obj)
+        function [additions] = findMissingBeats(obj)    %% HrPeaksFinal
             if(isempty(obj.HrPeaksFinal))
                 obj.HrPeaksFinal=obj.HrPeaks;
             end
@@ -274,7 +274,7 @@ classdef radarClass < handle
 
         end
         % function to fix hr spikes on the hrEst
-        function [missingBeats, excessBeats] = FindHrSpikes(obj,norm)
+        function [missingBeats, excessBeats] = FindHrSpikes(obj,norm) %%HrEstSpikes
             % this function finds anomalies:
             % excess peaks removed
             % missing peaks added
@@ -334,7 +334,7 @@ classdef radarClass < handle
             obj.HrEstSpikes = hr;
         end
         % function to find false positives independently for radar
-        function [removals] = clearFalsePos(obj)
+        function [removals] = clearFalsePos(obj)                      %HrPeaksFinal        
              if(isempty(obj.HrPeaksFinal))
                 obj.HrPeaksFinal=obj.HrPeaks;
             end
@@ -386,9 +386,79 @@ classdef radarClass < handle
            
             
         end 
-        
+        function [] = CorrelateHr(obj)
+
+          gtHr=obj.HrGtEst(:);
+          calculatedHr=obj.HrEstSpikes(:);
+          minlen=min(length(gtHr),length(calculatedHr));
+          gtHr=obj.HrGtEst(1:minlen);
+          calculatedHr=obj.HrEstSpikes(1:minlen);
+          gt_after_median_filt=medfilt1(gtHr,7);
+          calculatedHr_after_median_filt=medfilt1(calculatedHr,7);
+
+
+            %FOR RADAR SIGNAL
+         indx = find(calculatedHr > 1.4 * calculatedHr_after_median_filt | calculatedHr < 0.6 * calculatedHr_after_median_filt); 
+            
+          hr_replaced_with_median_in_outliers = calculatedHr;
+          hr_replaced_with_median_in_outliers(indx) =  calculatedHr_after_median_filt(indx);
+          
+           %FOR GT
+          indx = find(gtHr > 1.4 * gt_after_median_filt | gtHr < 0.6 * gt_after_median_filt); 
+            
+          gt_replaced_with_median_in_outliers = gtHr;
+          gt_replaced_with_median_in_outliers(indx) =  gt_after_median_filt(indx);
+          
+        hr_replaced_with_median_in_outliers=hr_replaced_with_median_in_outliers(:);
+        gt_replaced_with_median_in_outliers=gt_replaced_with_median_in_outliers(:);
+        cor=corr(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers)
+        R = corrcoef(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers);
+        correlation_value = R(1,2);
+        fprintf('The correlation coefficient is: %.4f\n', correlation_value);
+          
+
+
+
+
+
+          h = figure('Name', 'diff', 'Color', 'w');
+          legend('show', 'Location', 'best');
+          subplot(2,1,1);
+           plot(gtHr,'Color', 'b', 'DisplayName', 'GT');
+           hold on;
+           plot(gt_after_median_filt,'Color', 'r', 'DisplayName', 'gt filtered');
+           plot(gt_replaced_with_median_in_outliers,'Color', 'g', 'DisplayName', 'after median fix');     
+           legend('show', 'Location', 'best');
+           subplot(2,1,2);
+           plot(calculatedHr,'Color', 'b', 'DisplayName', 'Radar Signal');
+          hold on;
+          plot(calculatedHr_after_median_filt,'Color', 'r', 'DisplayName', 'radar filtered');
+          plot(hr_replaced_with_median_in_outliers,'Color', 'g', 'DisplayName', 'after median fix');
+          
+          
+          legend('show', 'Location', 'best');
+
+
+          linkaxes
+
+
+
+
+
+
+
+        end
         function [] = CalcError(obj)
             
+            % pre validation with clearFalsePos, CorrelatePeaks ,
+            % FindHrSpikes
+
+
+
+
+
+
+
 
             min_len = min(length(obj.HrGtEst), length(obj.HrEstFinal));
             v1=obj.HrEstFinal(1:min_len);
@@ -399,7 +469,7 @@ classdef radarClass < handle
             obj.maeRaw = mean(abs(v1-v2));
             obj.mse2HrRaw = sortrows([v2, mseraw]); % N,2, acending error per beat rate
             
-            v1_gt= 60 ./ diff(obj.correlated_HrPeaks(:,1) );% first colum is GT in this matrix
+            v1_gt = 60 ./ diff(obj.correlated_HrPeaks(:,1) );% first colum is GT in this matrix
             v2_radar= 60 ./ diff(obj.correlated_HrPeaks(:,2) );
             
             raw_err = v1_gt-v2_radar;
@@ -407,11 +477,19 @@ classdef radarClass < handle
             abs_err = abs(raw_err);
             
 
+
             obj.mseFitted = mean(mseraw);
             obj.maeFitted = mean(abs_err);
-            obj.mse2HrFitted = sortrows([v1_gt, mseraw]); % N,2, acending error per beat rate
-            obj.error2sSorted = sortrows([v1_gt, raw_err]); 
-            obj.mae2HrFitted = sortrows([v1_gt, abs_err] );
+            gt_vs_mse_raw_matrix = [v1_gt, mseraw];
+            gt_vs_rawerr_raw_matrix = [v1_gt, raw_err];
+            gt_vs_abserr_raw_matrix = [v1_gt, abs_err];
+            obj.mse2HrFitted = sortrows(gt_vs_mse_raw_matrix); % N,2, acending error per beat rate
+            obj.error2sSorted = sortrows(gt_vs_rawerr_raw_matrix ); 
+            obj.mae2HrFitted = sortrows(gt_vs_abserr_raw_matrix );
+
+
+
+
             
             
 
@@ -436,6 +514,30 @@ classdef radarClass < handle
         % ---------------------------------------------------------
 
         %% Plot only the HR peaks and the signals (Radar vs ECG)
+        function h = plotCovDiag(obj)
+            h = []; % Default empty if no data
+            % Check if estimates exist
+            if isempty(obj.HrEst) || isempty(obj.HrGtEst)
+                warning('HR Estimates are empty. Run FindRates() first.');
+                return;
+            end
+
+            h = figure('Name', 'Covariance_Diag_Analysis', 'Color', 'w');
+            
+            % Sync lengths
+          
+            Hr_after_corr_fix = obj.HrEstFinal;% 60 ./ diff( obj.correlated_HrPeaks(:,2) );
+            Hr_gt_after_corr_fix = obj.HrGtEst;%60 ./ diff( obj.correlated_HrPeaks(:,1) );
+            hold on;
+            plot(Hr_gt_after_corr_fix,Hr_after_corr_fix,"DisplayName",'Ground truth to RADAR heart rate'...
+                ,'Marker','*','LineStyle','none')
+            xlabel('ground truth HR')
+            ylabel('RADAR estimated HR')
+            
+            plot((30:1:150),(30:1:150));
+            %title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            legend('Measurements', 'Cov Diagonal'); grid on; hold off;
+        end       
         function h = plotHrpeaks(obj)
             h = figure('Name', 'Radar_ECG_Peaks', 'Color', 'w');
             
