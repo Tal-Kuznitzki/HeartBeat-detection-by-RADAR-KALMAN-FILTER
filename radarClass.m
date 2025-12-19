@@ -55,7 +55,7 @@ classdef radarClass < handle
         
     end
     properties(Constant)
-        MaxDiffFromGt = 0.3; %maximum difference between beats of radar and GT allowed 
+        MaxDiffFromGt = 0.7; %maximum difference between beats of radar and GT allowed 
 
     end
     methods
@@ -223,7 +223,7 @@ classdef radarClass < handle
                     localHr(loc) = inf; %making sure this value wont apply to 2 different beats.
                 end
             end
-            obj.correlated_HrPeaks = final(final(:,2) ~= -1, :);
+            obj.correlated_HrPeaks = final;%(final(:,2) ~= -1, :);
             obj.HrGtMean = mean(final,2);
             obj.HrGtDiff = final(:,1) - final(:,2);
             obj.correlation_misses=nnz( missed(:,1) ) ;
@@ -386,7 +386,7 @@ classdef radarClass < handle
            
             
         end 
-        function [] = CorrelateHr(obj)
+        function h = CorrelateHr(obj)
 
           gtHr=obj.HrGtEst(:);
           calculatedHr=obj.HrEstSpikes(:);
@@ -411,8 +411,11 @@ classdef radarClass < handle
           
         hr_replaced_with_median_in_outliers=hr_replaced_with_median_in_outliers(:);
         gt_replaced_with_median_in_outliers=gt_replaced_with_median_in_outliers(:);
-        cor=corr(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers)
+        cor = corr(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers)
         R = corrcoef(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers);
+        obj.HrEstFinal = hr_replaced_with_median_in_outliers;
+        obj.HrGtEst = gt_replaced_with_median_in_outliers;
+
         correlation_value = R(1,2);
         fprintf('The correlation coefficient is: %.4f\n', correlation_value);
           
@@ -423,20 +426,23 @@ classdef radarClass < handle
 
           h = figure('Name', 'diff', 'Color', 'w');
           legend('show', 'Location', 'best');
-          subplot(2,1,1);
+          subplot(3,1,1);
            plot(gtHr,'Color', 'b', 'DisplayName', 'GT');
            hold on;
            plot(gt_after_median_filt,'Color', 'r', 'DisplayName', 'gt filtered');
            plot(gt_replaced_with_median_in_outliers,'Color', 'g', 'DisplayName', 'after median fix');     
            legend('show', 'Location', 'best');
-           subplot(2,1,2);
+           subplot(3,1,2);
            plot(calculatedHr,'Color', 'b', 'DisplayName', 'Radar Signal');
-          hold on;
-          plot(calculatedHr_after_median_filt,'Color', 'r', 'DisplayName', 'radar filtered');
-          plot(hr_replaced_with_median_in_outliers,'Color', 'g', 'DisplayName', 'after median fix');
-          
-          
-          legend('show', 'Location', 'best');
+           hold on;
+           plot(calculatedHr_after_median_filt,'Color', 'r', 'DisplayName', 'radar filtered');
+           plot(hr_replaced_with_median_in_outliers,'Color', 'g', 'DisplayName', 'after median fix');
+           legend('show', 'Location', 'best');
+           subplot(3,1,3);
+           plot(gt_replaced_with_median_in_outliers,'Color', 'r', 'DisplayName', 'gt post fix');
+           hold on;
+           plot(hr_replaced_with_median_in_outliers,'Color', 'g', 'DisplayName', 'radar post fix');
+           legend('show', 'Location', 'best');
 
 
           linkaxes
@@ -496,20 +502,24 @@ classdef radarClass < handle
 
             
         end
+%% KALMAN 
+        
 
+
+%% PLOTS        
        % plotting functions       
         %plot the Hr peaks and the signals
        % function [] = plotHrpeaks(obj) % plot only the HRpeaks
        % function [] = plotBA(obj) %plot BlandAltman plot
        % function [] = plotRR(obj) % plots resipration rate plot 
        % function [] plotDashBoard(obj) 
-            %plot the following 
+            % plot the following 
             % 1. radar heart signal after filter(with peaks), 
             % 2. ecg refernce signal with peaks 
-            % 3.Heart rate comparison between the GT and the calculated IBI. (all three are linked axis.
+            % 3. Heart rate comparison between the GT and the calculated IBI. (all three are linked axis.
             % 4. bland altman plot 
         
-% ---------------------------------------------------------
+        % ---------------------------------------------------------
         % Plotting Functions
         % ---------------------------------------------------------
 
