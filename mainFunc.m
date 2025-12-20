@@ -45,8 +45,10 @@ end
 
 %% 2. initialization - Loop 
 % create filters
-[lpf_3,hpf_05]=HRfir(resampleFS); %HR filters
-[hpf_005,lpf_05]=LPF_05(resampleFS); %RR filter
+if(~exist("lpf_3"))
+    [lpf_3,hpf_05]=HRfir(resampleFS); %HR filters
+    [hpf_005,lpf_05]=LPF_05(resampleFS); %RR filter
+end
 % create a matrix for all of our data, divided by ID and scenario
 dataFull=cell(length(IDrange), numel(scenarios) ); %a cell for each struct
 
@@ -124,7 +126,8 @@ for indx = 1:length(IDrange)
         dataFull{indx,sz}.FindRates();
         dataFull{indx,sz}.HrEst();
 %
-        dataFull{indx,sz}.HrEstFinal=dataFull{indx,sz}.HrEstSpikes;
+%       dataFull{indx,sz}.HrEst=dataFull{indx,sz}.HrEstSpikes;
+        dataFull{indx,sz}.CorrelateHr();
 %
         dataFull{indx,sz}.CalcError();
         dataFull{indx,sz}.Plot_all(true, saveBaseDir);

@@ -400,14 +400,16 @@ classdef radarClass < handle
             %FOR RADAR SIGNAL
          indx = find(calculatedHr > 1.4 * calculatedHr_after_median_filt | calculatedHr < 0.6 * calculatedHr_after_median_filt); 
             
-          hr_replaced_with_median_in_outliers = calculatedHr;
-          hr_replaced_with_median_in_outliers(indx) =  calculatedHr_after_median_filt(indx);
-          
-           %FOR GT
+          % hr_replaced_with_median_in_outliers = calculatedHr;
+          % hr_replaced_with_median_in_outliers(indx) =  calculatedHr_after_median_filt(indx);
+          hr_replaced_with_median_in_outliers = obj.replaceOutliersByInterp(calculatedHr, indx)
+
           indx = find(gtHr > 1.4 * gt_after_median_filt | gtHr < 0.6 * gt_after_median_filt); 
             
-          gt_replaced_with_median_in_outliers = gtHr;
-          gt_replaced_with_median_in_outliers(indx) =  gt_after_median_filt(indx);
+          % gt_replaced_with_median_in_outliers = gtHr;
+          % gt_replaced_with_median_in_outliers(indx) =  gt_after_median_filt(indx);
+          gt_replaced_with_median_in_outliers = obj.replaceOutliersByInterp(gtHr, indx)
+
           
         hr_replaced_with_median_in_outliers=hr_replaced_with_median_in_outliers(:);
         gt_replaced_with_median_in_outliers=gt_replaced_with_median_in_outliers(:);
@@ -454,6 +456,8 @@ classdef radarClass < handle
 
 
         end
+        
+
         function [] = CalcError(obj)
             
             % pre validation with clearFalsePos, CorrelatePeaks ,
@@ -896,4 +900,44 @@ classdef radarClass < handle
             end
         end
     end
+
+    methods (Access = private)
+        function y_interp = replaceOutliersByInterp(obj, y, outlierIdxOrMask) %#ok<INUSL>
+            % Replace outliers by interpolation over index/time.
+            % y: vector
+            % outlierIdxOrMask: logical mask same length as y OR index vector
+    
+            y = y(:);
+            N = numel(y);
+            t = (1:N).';
+    
+            % Build logical mask
+            if islogical(outlierIdxOrMask)
+                bad = outlierIdxOrMask(:);
+                if numel(bad) ~= N
+                    error('replaceOutliersByInterp:MaskSize', ...
+                          'Logical mask must be same length as y.');
+                end
+            else
+                bad = false(N,1);
+                idx = outlierIdxOrMask(:);
+                idx = idx(idx>=1 & idx<=N & isfinite(idx));
+                bad(idx) = true;
+            end
+    
+            good = ~bad;
+    
+            % Need at least 2 good points to interpolate
+            if nnz(good) < 2
+                y_interp = y;  % nothing we can do robustly
+                return;
+            end
+    
+            y_interp = y;
+    
+            % Interpolate only the bad samples
+            y_interp(bad) = interp1(t(good), y(good), t(bad), 'pchip', 'extrap');
+        end
+    end
+
 end
