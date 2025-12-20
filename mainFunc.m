@@ -38,7 +38,7 @@ windowSeconds=15;
 windowStep=1; 
 saveBaseDir = 'SavedAnalysisFigures'; 
 lambda = 0.0125 ;
-
+statistics = statisticsClass(max(IDrange), 5); %initiate full table so the indexes will stay the same
 if b_CLEAR_OLD && exist(saveBaseDir,'dir')
     rmdir(saveBaseDir,'s');
 end
@@ -132,13 +132,15 @@ for indx = 1:length(IDrange)
         dataFull{indx,sz}.CalcError();
         dataFull{indx,sz}.Plot_all(true, saveBaseDir);
         
-        
+       statistics.updateTable(dataFull{indx,sz}.HrEstFinal,dataFull{indx,sz}.HrGtEst,indx,sz); 
     end
 end
 
 
 
 %% 8. Save Results
+statistics.exportExcel();
+
 if ~exist(saveBaseDir, 'dir')
     mkdir(saveBaseDir);
 end
@@ -149,18 +151,22 @@ fprintf('------------------------------------------------\n');
 fprintf('Processing complete. Converting objects to structs and saving...\n');
 
 % Convert objects to structs
-dataStructs = cell(size(dataFull));
-for i = 1:numel(dataFull)
-    if ~isempty(dataFull{i})
-        dataStructs{i} = struct(dataFull{i});
-    end
-end
 
-% Save the data AND the mapping keys (IDrange and scenarios)
-% This allows you to know that dataStructs{i, j} corresponds to:
-% Patient ID = IDrange(i)
-% Scenario   = scenarios{j}
-save(matFileName, 'dataStructs', 'IDrange', 'scenarios', '-v7.3');
+save(matFileName, 'dataFull', 'IDrange', 'scenarios', '-v7.3');
+
+% dataStructs = cell(size(dataFull));
+% for i = 1:numel(dataFull)
+%     if ~isempty(dataFull{i})
+%         dataStructs{i} = struct(dataFull{i});
+%     end
+% end
+% 
+% % Save the data AND the mapping keys (IDrange and scenarios)
+% % This allows you to know that dataStructs{i, j} corresponds to:
+% % Patient ID = IDrange(i)
+% % Scenario   = scenarios{j}
+% 
+% save(matFileName, 'dataStructs', 'IDrange', 'scenarios', '-v7.3');
 
 fprintf('Successfully saved data to:\n %s\n', matFileName);
 fprintf('------------------------------------------------\n');
