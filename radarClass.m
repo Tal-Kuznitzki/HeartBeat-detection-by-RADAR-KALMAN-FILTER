@@ -38,9 +38,9 @@ classdef radarClass < handle
         maeRaw
         maeFitted
         mse2HrRaw
-        mse2HrFitted
-        mae2HrFitted
-        error2sSorted
+        mse2Hr
+        mae2Hr
+        rawErr2Hr
         correlation_misses
         correlation_excess
 
@@ -55,7 +55,7 @@ classdef radarClass < handle
         
     end
     properties(Constant)
-        MaxDiffFromGt = 0.7; %maximum difference between beats of radar and GT allowed 
+        MaxDiffFromGt = 0.4; %maximum difference between beats of radar and GT allowed 
 
     end
     methods
@@ -402,13 +402,13 @@ classdef radarClass < handle
             
           % hr_replaced_with_median_in_outliers = calculatedHr;
           % hr_replaced_with_median_in_outliers(indx) =  calculatedHr_after_median_filt(indx);
-          hr_replaced_with_median_in_outliers = obj.replaceOutliersByInterp(calculatedHr, indx)
+          hr_replaced_with_median_in_outliers = obj.replaceOutliersByInterp(calculatedHr, indx);
 
           indx = find(gtHr > 1.4 * gt_after_median_filt | gtHr < 0.6 * gt_after_median_filt); 
             
           % gt_replaced_with_median_in_outliers = gtHr;
           % gt_replaced_with_median_in_outliers(indx) =  gt_after_median_filt(indx);
-          gt_replaced_with_median_in_outliers = obj.replaceOutliersByInterp(gtHr, indx)
+          gt_replaced_with_median_in_outliers = obj.replaceOutliersByInterp(gtHr, indx);
 
           
         hr_replaced_with_median_in_outliers=hr_replaced_with_median_in_outliers(:);
@@ -418,36 +418,36 @@ classdef radarClass < handle
         obj.HrEstFinal = hr_replaced_with_median_in_outliers;
         obj.HrGtEst = gt_replaced_with_median_in_outliers;
 
-        correlation_value = R(1,2);
-        fprintf('The correlation coefficient is: %.4f\n', correlation_value);
-          
-
-
-
-
-
-          h = figure('Name', 'diff', 'Color', 'w');
-          legend('show', 'Location', 'best');
-          subplot(3,1,1);
-           plot(gtHr,'Color', 'b', 'DisplayName', 'GT');
-           hold on;
-           plot(gt_after_median_filt,'Color', 'r', 'DisplayName', 'gt filtered');
-           plot(gt_replaced_with_median_in_outliers,'Color', 'g', 'DisplayName', 'after median fix');     
-           legend('show', 'Location', 'best');
-           subplot(3,1,2);
-           plot(calculatedHr,'Color', 'b', 'DisplayName', 'Radar Signal');
-           hold on;
-           plot(calculatedHr_after_median_filt,'Color', 'r', 'DisplayName', 'radar filtered');
-           plot(hr_replaced_with_median_in_outliers,'Color', 'g', 'DisplayName', 'after median fix');
-           legend('show', 'Location', 'best');
-           subplot(3,1,3);
-           plot(gt_replaced_with_median_in_outliers,'Color', 'r', 'DisplayName', 'gt post fix');
-           hold on;
-           plot(hr_replaced_with_median_in_outliers,'Color', 'g', 'DisplayName', 'radar post fix');
-           legend('show', 'Location', 'best');
-
-
-          linkaxes
+        % correlation_value = R(1,2);
+        % fprintf('The correlation coefficient is: %.4f\n', correlation_value);
+        % 
+        % 
+        % 
+        % 
+        % 
+        % 
+        %   h = figure('Name', 'diff', 'Color', 'w');
+        %   legend('show', 'Location', 'best');
+        %   subplot(3,1,1);
+        %    plot(gtHr,'Color', 'b', 'DisplayName', 'GT');
+        %    hold on;
+        %    plot(gt_after_median_filt,'Color', 'r', 'DisplayName', 'gt filtered');
+        %    plot(gt_replaced_with_median_in_outliers,'Color', 'g', 'DisplayName', 'after median fix');     
+        %    legend('show', 'Location', 'best');
+        %    subplot(3,1,2);
+        %    plot(calculatedHr,'Color', 'b', 'DisplayName', 'Radar Signal');
+        %    hold on;
+        %    plot(calculatedHr_after_median_filt,'Color', 'r', 'DisplayName', 'radar filtered');
+        %    plot(hr_replaced_with_median_in_outliers,'Color', 'g', 'DisplayName', 'after median fix');
+        %    legend('show', 'Location', 'best');
+        %    subplot(3,1,3);
+        %    plot(gt_replaced_with_median_in_outliers,'Color', 'r', 'DisplayName', 'gt post fix');
+        %    hold on;
+        %    plot(hr_replaced_with_median_in_outliers,'Color', 'g', 'DisplayName', 'radar post fix');
+        %    legend('show', 'Location', 'best');
+        % 
+        % 
+        %   linkaxes
 
 
 
@@ -483,19 +483,19 @@ classdef radarClass < handle
             v2_radar= 60 ./ diff(obj.correlated_HrPeaks(:,2) );
             
             raw_err = v1_gt-v2_radar;
-            mseraw=(raw_err).^2;
+            mse_err = (raw_err).^2;
             abs_err = abs(raw_err);
             
 
 
-            obj.mseFitted = mean(mseraw);
+            obj.mseFitted = mean(mse_err);
             obj.maeFitted = mean(abs_err);
-            gt_vs_mse_raw_matrix = [v1_gt, mseraw];
-            gt_vs_rawerr_raw_matrix = [v1_gt, raw_err];
-            gt_vs_abserr_raw_matrix = [v1_gt, abs_err];
-            obj.mse2HrFitted = sortrows(gt_vs_mse_raw_matrix); % N,2, acending error per beat rate
-            obj.error2sSorted = sortrows(gt_vs_rawerr_raw_matrix ); 
-            obj.mae2HrFitted = sortrows(gt_vs_abserr_raw_matrix );
+            gt_vs_mse_raw_matrix = [v2, mseraw];
+            gt_vs_rawerr_raw_matrix = [v2, v1-v2];
+            gt_vs_abserr_raw_matrix = [v2, abs(v1-v2)];
+            obj.mse2Hr = sortrows(gt_vs_mse_raw_matrix); % N,2, acending error per beat rate
+            obj.rawErr2Hr = sortrows(gt_vs_rawerr_raw_matrix ); 
+            obj.mae2Hr = sortrows(gt_vs_abserr_raw_matrix );
 
 
 
@@ -755,8 +755,8 @@ classdef radarClass < handle
             % --- Subplot 1: Raw Error vs HR ---
             subplot(3,1,1);
             hold on; grid on;
-            if ~isempty(obj.error2sSorted)
-                plot(obj.error2sSorted(:,1), obj.error2sSorted(:,2), 'ko', 'MarkerFaceColor', 'b', 'MarkerSize', 4);
+            if ~isempty(obj.rawErr2Hr)
+                plot(obj.rawErr2Hr(:,1), obj.rawErr2Hr(:,2), 'ko', 'MarkerFaceColor', 'b', 'MarkerSize', 4);
             end
             yline(0, 'r--', 'LineWidth', 1.5);
             % Updated Title with ID and Scenario
@@ -767,20 +767,20 @@ classdef radarClass < handle
             % --- Subplot 2: Absolute Error vs HR (The "MAE" request) ---
             subplot(3,1,2);
             hold on; grid on;
-            if ~isempty(obj.mae2HrFitted)
-                plot(obj.mae2HrFitted(:,1), obj.mae2HrFitted(:,2), 'ko', 'MarkerFaceColor', 'g', 'MarkerSize', 4);
+            if ~isempty(obj.mae2Hr)
+                plot(obj.mae2Hr(:,1), obj.mae2Hr(:,2), 'ko', 'MarkerFaceColor', 'g', 'MarkerSize', 4);
             end
             % Updated Title with ID and Scenario
             title(sprintf('Absolute Error (Magnitude) vs ECG HR - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             ylabel('|Error| (BPM)');
-            yline(mean(obj.mae2HrFitted(:,2)), 'm--', 'DisplayName', 'Mean (MAE)');
+            yline(mean(obj.mae2Hr(:,2)), 'm--', 'DisplayName', 'Mean (MAE)');
             legend('Abs Error', 'MAE Level', 'Location', 'best');
 
             % --- Subplot 3: Squared Error vs HR (MSE) ---
             subplot(3,1,3);
             hold on; grid on;
-            if ~isempty(obj.mse2HrFitted)
-                plot(obj.mse2HrFitted(:,1), obj.mse2HrFitted(:,2), 'ko', 'MarkerFaceColor', 'r', 'MarkerSize', 4);
+            if ~isempty(obj.mse2Hr)
+                plot(obj.mse2Hr(:,1), obj.mse2Hr(:,2), 'ko', 'MarkerFaceColor', 'r', 'MarkerSize', 4);
             end
             % Updated Title with ID and Scenario
             title(sprintf('Squared Error (Outliers) vs ECG HR - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));

@@ -115,13 +115,12 @@ for indx = 1:length(IDrange)
        
         dataFull{indx,sz}.FindPeaks();
         dataFull{indx,sz}.FindRates();
-        dataFull{indx,sz}.HrEst();
-        dataFull{indx,sz}.RrEst();
+        
         
         %TODO: update clearFalsePos to make a new vector, use findRates and
         %HrEst on the new vector, so we keep the data
         dataFull{indx,sz}.FindHrSpikes(2); % power or normalization for jitter
-        dataFull{indx,sz}.clearFalsePos();
+        %dataFull{indx,sz}.clearFalsePos();
         dataFull{indx,sz}.CorrelatePeaks();
         dataFull{indx,sz}.FindRates();
         dataFull{indx,sz}.HrEst();
