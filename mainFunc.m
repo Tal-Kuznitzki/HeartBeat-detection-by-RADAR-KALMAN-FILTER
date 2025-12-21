@@ -21,7 +21,13 @@ end
 b_CLEAR_OLD = true;
 b_plot_ALL = true;
 
-
+%%% TODO: 
+% MAKE SURE EVERYTHING IS PRINTED AS NEEDED 
+% MAKE -1 DISTINCT IN THE BA
+% INTEGRATE CORRELATE_HR TO FLOW - IT SHOULD OUTPUT MEDIAN FILTER BASELINE 
+% CHECK FOR APNEA/VALSALVA TIMES IN THE PAPER
+% 
+%STATISTICS !
 
 
 
@@ -115,19 +121,23 @@ for indx = 1:length(IDrange)
        
         dataFull{indx,sz}.FindPeaks();
         dataFull{indx,sz}.FindRates();
-        
-        
         %TODO: update clearFalsePos to make a new vector, use findRates and
         %HrEst on the new vector, so we keep the data
-        dataFull{indx,sz}.FindHrSpikes(2); % power or normalization for jitter
-        %dataFull{indx,sz}.clearFalsePos();
+        dataFull{indx,sz}.FindHrSpikes(2); % power or normalization for jitter INDEPENDANT !! 
+
+ 
+        %%%TODO IN HERE
+        ibi = 60 ./  dataFull{indx,sz}.HrEstSpikes ;
+        ibi = ibi(:);
+
+        dataFull{indx,sz}.HrPeaksFinal = dataFull{indx,sz}.HrPeaks(1) + [0;cumsum(ibi)];
+
+
+        %%% KALMAN SPLIT 
         dataFull{indx,sz}.CorrelatePeaks();
         dataFull{indx,sz}.FindRates();
-        dataFull{indx,sz}.HrEst();
-%
-%       dataFull{indx,sz}.HrEst=dataFull{indx,sz}.HrEstSpikes;
-        dataFull{indx,sz}.CorrelateHr();
-%
+        %dataFull{indx,sz}.CorrelateHr();
+
         dataFull{indx,sz}.CalcError();
         dataFull{indx,sz}.Plot_all(true, saveBaseDir);
         

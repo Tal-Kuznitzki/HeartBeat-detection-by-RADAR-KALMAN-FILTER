@@ -415,6 +415,7 @@ classdef radarClass < handle
         gt_replaced_with_median_in_outliers=gt_replaced_with_median_in_outliers(:);
         cor = corr(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers)
         R = corrcoef(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers);
+
         obj.HrEstFinal = hr_replaced_with_median_in_outliers;
         obj.HrGtEst = gt_replaced_with_median_in_outliers;
 
@@ -480,7 +481,7 @@ classdef radarClass < handle
             obj.mse2HrRaw = sortrows([v2, mseraw]); % N,2, acending error per beat rate
             
             v1_gt = 60 ./ diff(obj.correlated_HrPeaks(:,1) );% first colum is GT in this matrix
-            v2_radar= 60 ./ diff(obj.correlated_HrPeaks(:,2) );
+            v2_radar = 60 ./ diff(obj.correlated_HrPeaks(:,2) );
             
             raw_err = v1_gt-v2_radar;
             mse_err = (raw_err).^2;
@@ -556,6 +557,7 @@ classdef radarClass < handle
             h = figure('Name', 'Radar_ECG_Peaks', 'Color', 'w');
             
             % Subplot 1: Radar Signal
+ 
             ax(1) = subplot(2,1,1);
             hold on;
             title(sprintf('Radar HR Filters & Peak Finder - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
@@ -599,34 +601,46 @@ classdef radarClass < handle
             end
 
             h = figure('Name', 'Bland_Altman_Analysis', 'Color', 'w');
-            
-            % Sync lengths
-            if exist('BlandAltman', 'file')
 
-
-                Hr_after_corr_fix = 60 ./ diff( obj.correlated_HrPeaks(:,2) );
-                Hr_gt_after_corr_fix = 60 ./ diff( obj.correlated_HrPeaks(:,1) );
-
-                BlandAltman(Hr_gt_after_corr_fix, Hr_after_corr_fix, 2, 0);
-            else
-                % Fallback
-                diffs = vec_ecg - vec_radar;
-                means = (vec_ecg + vec_radar) / 2;
-                plot(means, diffs, 'o', 'DisplayName', 'Data Points');
-                hold on;
-                yline(mean(diffs), '-r', 'Mean Diff', 'DisplayName', 'Mean Difference');
-                yline(mean(diffs) + 1.96*std(diffs), '--r', 'DisplayName', '+1.96 SD');
-                yline(mean(diffs) - 1.96*std(diffs), '--r', 'DisplayName', '-1.96 SD');
-                xlabel('Mean of methods'); ylabel('Difference');
-                legend('show', 'Location', 'best');
-                hold off;
+            if ~isempty(obj.HrGtEst) && ~isempty(obj.HrEstFinal)
+                if exist('BlandAltman', 'file')
+                    obj.HrEstFinal=obj.HrEstFinal(:);
+                   BlandAltman(obj.correlated_HrPeaks(:,1),obj.correlated_HrPeaks(:,2), 2, 0);
+                % else
+                %     plot(vec_ecg, vec_radar, 'o', 'DisplayName', 'Data Points'); 
+                %     xlabel('ECG'); ylabel('Radar');
+                %     legend('show', 'Location', 'best');
+                end
+                title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             end
+            
+            % % Sync lengths
+            % if exist('BlandAltman', 'file')
+            % 
+            % 
+            %     Hr_after_corr_fix = 60 ./ diff( obj.correlated_HrPeaks(:,2) );
+            %     Hr_gt_after_corr_fix = 60 ./ diff( obj.correlated_HrPeaks(:,1) );
+            % 
+            %     BlandAltman(Hr_gt_after_corr_fix, Hr_after_corr_fix, 2, 0);
+            % else
+            %     Fallback
+            %     diffs = vec_ecg - vec_radar;
+            %     means = (vec_ecg + vec_radar) / 2;
+            %     plot(means, diffs, 'o', 'DisplayName', 'Data Points');
+            %     hold on;
+            %     yline(mean(diffs), '-r', 'Mean Diff', 'DisplayName', 'Mean Difference');
+            %     yline(mean(diffs) + 1.96*std(diffs), '--r', 'DisplayName', '+1.96 SD');
+            %     yline(mean(diffs) - 1.96*std(diffs), '--r', 'DisplayName', '-1.96 SD');
+            %     xlabel('Mean of methods'); ylabel('Difference');
+            %     legend('show', 'Location', 'best');
+            %     hold off;
+           
             
             title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
         end
 
        %% Plots respiration rate signal (Split into 2 Figures)
-            %% Plot Respiration Rates (Trends)
+       %% Plot Respiration Rates (Trends)
         function h = plotRrRates(obj)
             h = figure('Name', 'Respiration_Rates', 'Color', 'w');
             hold on;
@@ -639,13 +653,11 @@ classdef radarClass < handle
             if ~isempty(obj.RrGtEst)
                  plot(obj.RrGtEst, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'TFM Respiration');           
             end
-            
             ylabel('Breaths Per Minute'); 
             xlabel('Window Index / Time');
             legend('show', 'Location', 'best'); 
             grid on; hold off;
         end
-
         %% Plot Respiration Signals (Time Domain)
         function h = plotRrSignals(obj)
             h = figure('Name', 'Respiration_Signals_Comparison', 'Color', 'w');
@@ -721,27 +733,22 @@ classdef radarClass < handle
                 time_gt_bpm = obj.ecgPeaks(2:end); 
                 plot(time_gt_bpm, obj.HrGtEst, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'ECG GT');
             end
-            if ~isempty(obj.HrEst)
-                time_radar_bpm = obj.HrPeaks(2:end);
-                plot(time_radar_bpm, obj.HrEst, 'b.--', 'LineWidth', 1.2, 'DisplayName', 'Radar Est');
+            if ~isempty(obj.HrEstFinal)
+                time_radar_bpm = obj.HrPeaksFinal(2:end);
+                plot(time_radar_bpm, obj.HrEstFinal, 'b.--', 'LineWidth', 1.2, 'DisplayName', 'Radar Est');
             end
             title(sprintf('Heart Rate (BPM) - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             xlabel('Time (s)'); ylabel('BPM'); legend('show', 'Location', 'best'); grid on; axis tight; hold off;
 
             % 4. Bland-Altman (NOT LINKED)
             subplot(4,1,4);
-            if ~isempty(obj.HrGtEst) && ~isempty(obj.HrEst)
-
-
-                Hr_after_corr_fix = 60 ./ diff( obj.correlated_HrPeaks(:,2) );
-                Hr_gt_after_corr_fix = 60 ./ diff( obj.correlated_HrPeaks(:,1) );
-         
+            if ~isempty(obj.HrGtEst) && ~isempty(obj.HrEstFinal)
                 if exist('BlandAltman', 'file')
-                   BlandAltman(Hr_gt_after_corr_fix, Hr_after_corr_fix, 2, 0);
-                else
-                    plot(vec_ecg, vec_radar, 'o', 'DisplayName', 'Data Points'); 
-                    xlabel('ECG'); ylabel('Radar');
-                    legend('show', 'Location', 'best');
+                    BlandAltman(obj.correlated_HrPeaks(:,1),obj.correlated_HrPeaks(:,2), 2, 0);
+                % else
+                %     plot(vec_ecg, vec_radar, 'o', 'DisplayName', 'Data Points'); 
+                %     xlabel('ECG'); ylabel('Radar');
+                %     legend('show', 'Location', 'best');
                 end
                 title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             end

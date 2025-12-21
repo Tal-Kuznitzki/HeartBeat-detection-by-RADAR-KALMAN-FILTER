@@ -33,6 +33,9 @@ function [means,diffs,meanDiff,CR,linFit] = BlandAltman(var1, var2, flag, flag2)
     elseif nargin<4
         flag2 = 0;
     end
+
+    var1 =var1(:);
+    var2 =var2(:);
     
     means = mean([var1,var2],2);
     if flag2
