@@ -25,9 +25,13 @@ classdef radarClass < handle
         %results
         HrEst
         HrEstFinal
+        HrEstAfterMedian
+        HrGtEstAfterMedian
         HrEstSpikes
+        Hr_correlated_HrPeaks
         excessLocsFromHr
         missingLocsFromHr
+        
         RrEst
         HrGtEst
         RrGtEst
@@ -186,14 +190,16 @@ classdef radarClass < handle
         end
 
         % finding the rates
-        function FindRates(obj)
+        function FindRates(obj,use_reference)
             obj.HrEst = 60 ./  diff(obj.HrPeaks);
             obj.HrGtEst = 60 ./  diff(obj.ecgPeaks); 
             obj.RrEst = 60 ./  diff(obj.RrPeaks);
             obj.RrGtEst = 60 ./ diff(obj.Rrpeaks_gt);            
              % TODO: add rates for GT Rr
-            if(~isempty(obj.HrPeaksFinal))
+            if(use_reference)
+                disp("using reference");
                 obj.HrEstFinal = 60 ./  diff(obj.HrPeaksFinal);
+                obj.Hr_correlated_HrPeaks = 60 ./  diff(obj.correlated_HrPeaks(:,2));
             end
         end
         % align HR detected peaks to gt peaks- validation
@@ -202,6 +208,7 @@ classdef radarClass < handle
         function [missed,excess] = CorrelatePeaks(obj) %% correlated_HrPeaks
                      
             if(isempty(obj.HrPeaksFinal))
+                disp("HrPeaksFinal is empty in CorrelatePeaks");
                 obj.HrPeaksFinal=obj.HrPeaks;
             end
             final=zeros(length(obj.ecgPeaks),2);
@@ -223,7 +230,66 @@ classdef radarClass < handle
                     localHr(loc) = inf; %making sure this value wont apply to 2 different beats.
                 end
             end
-            obj.correlated_HrPeaks = final;%(final(:,2) ~= -1, :);
+
+           % new stuff
+           % --- 2. New Logic: Interpolate Misses (-1s) ---
+            %We map GT Time -> Radar Time using the valid pairs,
+            %then fill in the -1s based on their GT time.
+
+            validMask = final(:,2) ~= -1;
+            missingMask = final(:,2) == -1;
+
+            %Check if we have enough points to interpolate
+            if sum(validMask) > 1 && sum(missingMask) > 0
+                %Using 'pchip' (cubic) guarantees monotonicity for time vectors
+                interpValues = interp1(final(validMask, 1), final(validMask, 2), ...
+                    final(missingMask, 1), 'pchip', 'extrap');
+
+                %Replace -1s with interpolated time values
+                final(missingMask, 2) = interpValues;
+                fprintf('Fixed %d missing beats using interpolation.\n', sum(missingMask));
+            end
+
+            obj.correlated_HrPeaks = final;
+
+            %--- 3. Calculate HR on the Fixed Vector ---
+            %Now that 'final' is full (no -1s), we can calculate HR
+           %HR = 60 / IBI
+
+            if size(final, 1) > 1
+                %Calculate HR vectors (Instantaneous BPM)
+                hr_gt_aligned = 60 ./ diff(final(:, 1));
+                hr_radar_fixed = 60 ./ diff(final(:, 2));
+
+                %Handle edge cases where interpolation might cause div/0 or neg diff
+                %(Rare with pchip, but good practice)
+                valid_hr_idx = hr_radar_fixed > 0 & hr_radar_fixed < 300;
+
+                %--- 4. Correlation & Median Analysis ---
+                if sum(valid_hr_idx) > 2
+                    %Create a median filtered version of the fixed Radar HR
+                    hr_radar_median = medfilt1(hr_radar_fixed, 5); % Window 5
+
+                    %Calculate Correlation: Fixed Radar vs GT
+                    corr_GT = corr(hr_radar_fixed(valid_hr_idx), hr_gt_aligned(valid_hr_idx));
+
+                    %Calculate Correlation: Fixed Radar vs Its Own Median
+                    corr_Med = corr(hr_radar_fixed(valid_hr_idx), hr_radar_median(valid_hr_idx));
+
+                    fprintf('------------------------------------------------\n');
+                    fprintf('Correlation Analysis (ID: %s):\n', obj.ID);
+                    fprintf('  Radar(Fixed) vs GT:           %.4f\n', corr_GT);
+                    fprintf('  Radar(Fixed) vs Median Filt:  %.4f\n', corr_Med);
+                    fprintf('------------------------------------------------\n');
+
+                    %Update the class property with the clean, aligned HR
+                    obj.Hr_correlated_HrPeaks = hr_radar_fixed;
+                end
+            end
+
+
+
+            %obj.correlated_HrPeaks = final;%(final(:,2) ~= -1, :);
             obj.HrGtMean = mean(final,2);
             obj.HrGtDiff = final(:,1) - final(:,2);
             obj.correlation_misses=nnz( missed(:,1) ) ;
@@ -274,7 +340,7 @@ classdef radarClass < handle
 
         end
         % function to fix hr spikes on the hrEst
-        function [missingBeats, excessBeats] = FindHrSpikes(obj,norm) %%HrEstSpikes
+        function [missingBeats, excessBeats] = FindHrSpikes(obj,norm,update) %%HrEstSpikes
             % this function finds anomalies:
             % excess peaks removed
             % missing peaks added
@@ -332,6 +398,12 @@ classdef radarClass < handle
             obj.excessLocsFromHr = excessBeats;
             obj.missingLocsFromHr = missingBeats;
             obj.HrEstSpikes = hr;
+            if (update)
+              ibi = 60 ./  obj.HrEstSpikes ;
+              ibi = ibi(:);
+              obj.HrPeaksFinal = obj.HrPeaks(1) + [0;cumsum(ibi)];
+                disp("we updated HrPeaksFinal");
+            end
         end
         % function to find false positives independently for radar
         function [removals] = clearFalsePos(obj)                      %HrPeaksFinal        
@@ -397,7 +469,7 @@ classdef radarClass < handle
           calculatedHr_after_median_filt=medfilt1(calculatedHr,7);
 
 
-            %FOR RADAR SIGNAL
+          %FOR RADAR SIGNAL
          indx = find(calculatedHr > 1.4 * calculatedHr_after_median_filt | calculatedHr < 0.6 * calculatedHr_after_median_filt); 
             
           % hr_replaced_with_median_in_outliers = calculatedHr;
@@ -413,11 +485,12 @@ classdef radarClass < handle
           
         hr_replaced_with_median_in_outliers=hr_replaced_with_median_in_outliers(:);
         gt_replaced_with_median_in_outliers=gt_replaced_with_median_in_outliers(:);
-        cor = corr(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers)
+        cor_after_median_Filter_on_both_signals = corr(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers)
         R = corrcoef(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers);
 
-        obj.HrEstFinal = hr_replaced_with_median_in_outliers;
-        obj.HrGtEst = gt_replaced_with_median_in_outliers;
+        %obj.HrEstFinal = hr_replaced_with_median_in_outliers;
+        obj.HrEstAfterMedian = hr_replaced_with_median_in_outliers;
+        obj.HrGtEstAfterMedian = gt_replaced_with_median_in_outliers;
 
         % correlation_value = R(1,2);
         % fprintf('The correlation coefficient is: %.4f\n', correlation_value);
@@ -472,6 +545,7 @@ classdef radarClass < handle
 
 
             min_len = min(length(obj.HrGtEst), length(obj.HrEstFinal));
+
             v1=obj.HrEstFinal(1:min_len);
             v2=obj.HrGtEst(1:min_len);
             v2=v2(:);
@@ -566,8 +640,8 @@ classdef radarClass < handle
             
             % Interpolate to find amplitude at peak times
             if ~isempty(obj.HrPeaks)
-                peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks); 
-                plot(obj.HrPeaks, peakAmps*1e4, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
+                peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksFinal); %changed from HrPeaks
+                plot(obj.HrPeaksFinal, peakAmps*1e4, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks'); %changed from HrPeaks
             end
             
             ylabel('Amp (scaled)');
@@ -709,8 +783,8 @@ classdef radarClass < handle
             hold on;
             plot(obj.vTimeNew, obj.HrSignal, 'b', 'DisplayName', 'Radar Signal');
             if ~isempty(obj.HrPeaks)
-                peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks);
-                plot(obj.HrPeaks, peakAmps, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
+                peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksFinal); %changed form HrPeaks
+                plot(obj.HrPeaksFinal, peakAmps, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
             end
             title(sprintf('Radar Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             ylabel('Amp'); legend('show', 'Location', 'best'); grid on; axis tight; hold off;
@@ -734,8 +808,8 @@ classdef radarClass < handle
                 plot(time_gt_bpm, obj.HrGtEst, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'ECG GT');
             end
             if ~isempty(obj.HrEstFinal)
-                time_radar_bpm = obj.HrPeaksFinal(2:end);
-                plot(time_radar_bpm, obj.HrEstFinal, 'b.--', 'LineWidth', 1.2, 'DisplayName', 'Radar Est');
+                time_radar_bpm = obj.correlated_HrPeaks(2:end);
+                plot(time_radar_bpm, obj.HrEstFinal, 'b.--', 'LineWidth', 1.2, 'DisplayName', 'HrEstSpikes');
             end
             title(sprintf('Heart Rate (BPM) - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             xlabel('Time (s)'); ylabel('BPM'); legend('show', 'Location', 'best'); grid on; axis tight; hold off;
@@ -862,47 +936,64 @@ classdef radarClass < handle
         end
 
         %% Plot All and Optionally Save
-        function [] = Plot_all(obj, bsave, saveDir) 
-            % bsave - boolean: save all figures?
-            % saveDir - optional: string path to save folder
-            
-            if nargin < 3
-                saveDir = 'SavedAnalysisFigures';
-            end
-            if nargin < 2
-                bsave = false;
+      %% Plot All with Selection Flags
+        function [] = PlotAll(obj, bsave, saveDir, options) 
+            % Arguments block allows named optional inputs
+            arguments
+                obj
+                bsave (1,1) logical = false
+                saveDir (1,1) string = 'SavedAnalysisFigures'
+                options.plot_HrPeaks (1,1) logical = true
+                options.plot_RrRates (1,1) logical = true
+                options.plot_RrSignals (1,1) logical = true
+                options.plot_BA (1,1) logical = true
+                options.plot_DashBoard (1,1) logical = true
+                options.plot_Errors (1,1) logical = true
             end
 
             figHandles = gobjects(0); % Initialize empty graphics array
 
-            % Generate plots and collect handles
             % 1. HR Peaks
-            h1 = obj.plotHrpeaks();
-            if isgraphics(h1), figHandles(end+1) = h1; end
+            if options.plot_HrPeaks
+                h1 = obj.plotHrpeaks();
+                if isgraphics(h1), figHandles(end+1) = h1; end
+            end
             
-            % 2. Respiration
-            h2 = obj.plotRrRates();
-            if isgraphics(h2), figHandles(end+1) = h2; end
-            h3 = obj.plotRrSignals();
-            if isgraphics(h3), figHandles(end+1) = h3; end
+            % 2. Respiration Rates
+            if options.plot_RrRates
+                h2 = obj.plotRrRates();
+                if isgraphics(h2), figHandles(end+1) = h2; end
+            end
 
-            % 3. Bland Altman (only if data exists)
-            h4 = obj.plotBA();
-            if isgraphics(h4), figHandles(end+1) = h4; end
+            % 3. Respiration Signals
+            if options.plot_RrSignals
+                h3 = obj.plotRrSignals();
+                if isgraphics(h3), figHandles(end+1) = h3; end
+            end
 
-            % 4. Dashboard
-            h5 = obj.plotDashBoard();
-            if isgraphics(h5), figHandles(end+1) = h5; end
+            % 4. Bland Altman (only if data exists)
+            if options.plot_BA
+                h4 = obj.plotBA();
+                if isgraphics(h4), figHandles(end+1) = h4; end
+            end
 
-            % 5. Error Analysis
-            h6 = obj.plotErrors();
-            if isgraphics(h6), figHandles(end+1) = h6; end
+            % 5. Dashboard
+            if options.plot_DashBoard
+                h5 = obj.plotDashBoard();
+                if isgraphics(h5), figHandles(end+1) = h5; end
+            end
+
+            % 6. Error Analysis
+            if options.plot_Errors
+                h6 = obj.plotErrors();
+                if isgraphics(h6), figHandles(end+1) = h6; end
+            end
 
             % Save if requested
             if bsave
                 obj.saveFigures(figHandles, saveDir);
                 
-                % Optional: Close figures after saving to prevent memory buildup during loops
+                % Optional: Close figures after saving to prevent memory buildup
                 % close(figHandles); 
             end
         end

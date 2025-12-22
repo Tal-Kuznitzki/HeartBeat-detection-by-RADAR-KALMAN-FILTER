@@ -32,7 +32,7 @@ b_plot_ALL = true;
 
 
 IDrange = 1 ; %11:12;   
-scenarios ={'Resting','Valsalva'};% {'Resting','Valsalva','Apnea','Tilt-down','Tilt-up'}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
+scenarios ={'Resting','Valsalva'};% {'Resting','Valsalva','Apnea','Tiltdown','Tiltup'}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
@@ -102,6 +102,7 @@ for indx = 1:length(IDrange)
         
 %% 4. initial Radar processing
  %%% TODO: get our own radar_dist
+
       dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration);
       
 %% 5. frequency domain processing
@@ -109,37 +110,64 @@ for indx = 1:length(IDrange)
         dataFull{indx,sz}.DownSampleRadar(resampleFS);
         dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
         dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
-        filteringTime = toc;
-        
-        
-
-        
-   
-           
-        
-%% 6. time analysis
+        filteringTime = toc;         
+     %% 6. time analysis
        
-        dataFull{indx,sz}.FindPeaks();
-        dataFull{indx,sz}.FindRates();
-        %TODO: update clearFalsePos to make a new vector, use findRates and
-        %HrEst on the new vector, so we keep the data
-        dataFull{indx,sz}.FindHrSpikes(2); % power or normalization for jitter INDEPENDANT !! 
+        dataFull{indx,sz}.FindPeaks(); 
+        % generates peaks: Hr, Rr , ecg(gt) ,Rr_gt
+        % based solely on findPeaks() and pan_tompkin 
+        % used HrSignal,RrSignal ecg_gt resp_gt
 
- 
-        %%%TODO IN HERE
-        ibi = 60 ./  dataFull{indx,sz}.HrEstSpikes ;
-        ibi = ibi(:);
+        dataFull{indx,sz}.FindRates(0); 
+        % based on peaks: Hr, Rr , ecg(gt) ,Rr_gt and peaksFinal ,
+        % generates rates: HrEst, HrGtEst, RrEst, RrGtEst 
+        % if use_reference is true(default yes) then also generate:
+        % HrEstFinal  from HrPeaksFinal
+        % Hr_correlated_HrPeaks  from correlated_HrPeaks
+        
+        dataFull{indx,sz}.FindHrSpikes(2,1);  
+        % based on  HrEst, finds missing/excess beats INDEPENDANT of ecg
+        % arg1 (default is 2) is power or normalization for jitter
+        % now is 2/3and 1/3 
+        % arg2 (bool, default true) - whether to update HrEstFinal
+        % based on the newly calculated Hr
+        % generates:
+        % excessLocsFromHr, missingLocsFromHr, HrEstSpikes, HrPeaksFinal
+        % excess Beats      Missing Beats      corrected Hr corrected peaks
 
-        dataFull{indx,sz}.HrPeaksFinal = dataFull{indx,sz}.HrPeaks(1) + [0;cumsum(ibi)];
+        dataFull{indx,sz}.CorrelateHr();
+        % based on  HrEstSpikes, HrGtEst 
+        % updates HrEstAfterMedian  and HrGtEstAfterMedian after median filter on each.
 
 
-        %%% KALMAN SPLIT 
+        % up to here we have
+        % HrEstAfterMedian  - hr from HrEstSpikes after median
+        % HrPeaksFinal - peaks after cleaning the spikes 
+        %   
+        %
+
+        %up to here we have not used the reference. good place for KALMAN
         dataFull{indx,sz}.CorrelatePeaks();
-        dataFull{indx,sz}.FindRates();
-        %dataFull{indx,sz}.CorrelateHr();
+        % get misses and excess beats with reference to the ecg
+        % based on HrPeaksFinal and ecgPeaks
+        % generates correlated_HrPeaks,
+        % first col is reference, second is HrPeaksFinal  after taking only
+        % the correlated ones. - marking the incorrect ones as -1 ! 
+
+
+        dataFull{indx,sz}.FindRates(1);
+        % based on peaks: Hr, Rr , ecg(gt) ,Rr_gt and peaksFinal ,
+        % generates rates: HrEst, HrGtEst, RrEst, RrGtEst 
+        % if use_reference is true(default yes) then also generate:
+        % HrEstFinal  from HrPeaksFinal
+        % Hr_correlated_HrPeaks  from correlated_HrPeaks
+
 
         dataFull{indx,sz}.CalcError();
-        dataFull{indx,sz}.Plot_all(true, saveBaseDir);
+        dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
+            'plot_RrSignals',false, ...
+            'plot_RrRates',false);
+            
         
        statistics.updateTable(dataFull{indx,sz}.HrEstFinal,dataFull{indx,sz}.HrGtEst,indx,sz); 
     end
