@@ -168,6 +168,7 @@ for indx = 1:length(IDrange)
 
 
         dataFull{indx,sz}.CalcError();
+        dataFull{indx,sz}.plotCovDiag(); 
         dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
             'plot_RrSignals',false, ...
             'plot_RrRates',false);
