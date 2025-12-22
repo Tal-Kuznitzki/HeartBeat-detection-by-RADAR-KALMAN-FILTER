@@ -135,7 +135,7 @@ for indx = 1:length(IDrange)
         % excessLocsFromHr, missingLocsFromHr, HrEstSpikes, HrPeaksFinal
         % excess Beats      Missing Beats      corrected Hr corrected peaks
 
-        dataFull{indx,sz}.CorrelateHr();
+        dataFull{indx,sz}.MedianHr();
         % based on  HrEstSpikes, HrGtEst 
         % updates HrEstAfterMedian  and HrGtEstAfterMedian after median filter on each.
 
@@ -147,12 +147,12 @@ for indx = 1:length(IDrange)
         %
 
         %up to here we have not used the reference. good place for KALMAN
-        dataFull{indx,sz}.CorrelatePeaks();
+        [~,~,v_correlate_result] = dataFull{indx,sz}.CorrelatePeaks(dataFull{indx,sz}.HrPeaksFinal);
         % get misses and excess beats with reference to the ecg
         % based on HrPeaksFinal and ecgPeaks
         % generates correlated_HrPeaks,
         % first col is reference, second is HrPeaksFinal  after taking only
-        % the correlated ones. - marking the incorrect ones as -1 ! 
+        % the correlated ones. - for the incorrect ones we interpolate! 
 
 
         dataFull{indx,sz}.FindRates(1);

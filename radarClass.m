@@ -47,6 +47,8 @@ classdef radarClass < handle
         rawErr2Hr
         correlation_misses
         correlation_excess
+        vcorrelation_excess_locs
+        vcorrelation_misses_locs
 
         %additional information
         vTimeOriginal
@@ -205,16 +207,20 @@ classdef radarClass < handle
         % align HR detected peaks to gt peaks- validation
         % also returns a vector with missed beats and their offset,
         % and a vector of false positives
-        function [missed,excess] = CorrelatePeaks(obj) %% correlated_HrPeaks
+        function [missed,excess,final,corr] = CorrelatePeaks(obj, vpeaksToComp) %% correlated_HrPeaks
                      
-            if(isempty(obj.HrPeaksFinal))
-                disp("HrPeaksFinal is empty in CorrelatePeaks");
-                obj.HrPeaksFinal=obj.HrPeaks;
+            if(nargin <2)
+                disp("vpeaksToComp is empty in CorrelatePeaks");
+                localHr=obj.HrPeaks;
+            else
+            localHr=vpeaksToComp;
             end
+
             final=zeros(length(obj.ecgPeaks),2);
-            localHr=obj.HrPeaksFinal;
             missed=zeros(length(obj.ecgPeaks),2);
-            excess = ones(length(obj.HrPeaksFinal),1);
+            excess = ones(length(localHr),1);
+            obj.vcorrelation_excess_locs  = ones(length(size(localHr)));
+            obj.vcorrelation_misses_locs  = zeros(length(size(obj.ecgPeaks)));
             for i=1:length(obj.ecgPeaks)
                 diffI = abs(obj.ecgPeaks(i)-localHr);
                 [val,loc]=min(diffI);
@@ -223,10 +229,12 @@ classdef radarClass < handle
                     missed(i,2) = val;
                     final(i,1) = obj.ecgPeaks(i);
                     final(i,2) = -1;
+                    obj.vcorrelation_misses_locs(i) = -1;
                 else 
                     excess(loc) = 0;
+                    obj.vcorrelation_excess_locs(loc) = 0;
                     final(i,1) = obj.ecgPeaks(i);
-                    final(i,2) = obj.HrPeaksFinal(loc);
+                    final(i,2) = localHr(loc);
                     localHr(loc) = inf; %making sure this value wont apply to 2 different beats.
                 end
             end
@@ -249,47 +257,8 @@ classdef radarClass < handle
                 final(missingMask, 2) = interpValues;
                 fprintf('Fixed %d missing beats using interpolation.\n', sum(missingMask));
             end
-
+            correlation = corr(final(:,1), final(:,2) );
             obj.correlated_HrPeaks = final;
-
-            %--- 3. Calculate HR on the Fixed Vector ---
-            %Now that 'final' is full (no -1s), we can calculate HR
-           %HR = 60 / IBI
-
-            if size(final, 1) > 1
-                %Calculate HR vectors (Instantaneous BPM)
-                hr_gt_aligned = 60 ./ diff(final(:, 1));
-                hr_radar_fixed = 60 ./ diff(final(:, 2));
-
-                %Handle edge cases where interpolation might cause div/0 or neg diff
-                %(Rare with pchip, but good practice)
-                valid_hr_idx = hr_radar_fixed > 0 & hr_radar_fixed < 300;
-
-                %--- 4. Correlation & Median Analysis ---
-                if sum(valid_hr_idx) > 2
-                    %Create a median filtered version of the fixed Radar HR
-                    hr_radar_median = medfilt1(hr_radar_fixed, 5); % Window 5
-
-                    %Calculate Correlation: Fixed Radar vs GT
-                    corr_GT = corr(hr_radar_fixed(valid_hr_idx), hr_gt_aligned(valid_hr_idx));
-
-                    %Calculate Correlation: Fixed Radar vs Its Own Median
-                    corr_Med = corr(hr_radar_fixed(valid_hr_idx), hr_radar_median(valid_hr_idx));
-
-                    fprintf('------------------------------------------------\n');
-                    fprintf('Correlation Analysis (ID: %s):\n', obj.ID);
-                    fprintf('  Radar(Fixed) vs GT:           %.4f\n', corr_GT);
-                    fprintf('  Radar(Fixed) vs Median Filt:  %.4f\n', corr_Med);
-                    fprintf('------------------------------------------------\n');
-
-                    %Update the class property with the clean, aligned HR
-                    obj.Hr_correlated_HrPeaks = hr_radar_fixed;
-                end
-            end
-
-
-
-            %obj.correlated_HrPeaks = final;%(final(:,2) ~= -1, :);
             obj.HrGtMean = mean(final,2);
             obj.HrGtDiff = final(:,1) - final(:,2);
             obj.correlation_misses=nnz( missed(:,1) ) ;
@@ -458,7 +427,7 @@ classdef radarClass < handle
            
             
         end 
-        function h = CorrelateHr(obj)
+        function h = MedianHr(obj)
 
           gtHr=obj.HrGtEst(:);
           calculatedHr=obj.HrEstSpikes(:);
@@ -522,13 +491,6 @@ classdef radarClass < handle
         % 
         % 
         %   linkaxes
-
-
-
-
-
-
-
         end
         
 
@@ -536,16 +498,7 @@ classdef radarClass < handle
             
             % pre validation with clearFalsePos, CorrelatePeaks ,
             % FindHrSpikes
-
-
-
-
-
-
-
-
             min_len = min(length(obj.HrGtEst), length(obj.HrEstFinal));
-
             v1=obj.HrEstFinal(1:min_len);
             v2=obj.HrGtEst(1:min_len);
             v2=v2(:);
@@ -640,8 +593,10 @@ classdef radarClass < handle
             
             % Interpolate to find amplitude at peak times
             if ~isempty(obj.HrPeaks)
-                peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksFinal); %changed from HrPeaks
+                peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks); %changed from HrPeaks
+                peakAmps1 = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksFinal); 
                 plot(obj.HrPeaksFinal, peakAmps*1e4, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks'); %changed from HrPeaks
+                plot(obj.HrPeaksFinal, peakAmps1*1e4, 'g*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks after spike fix'); %changed from HrPeaks
             end
             
             ylabel('Amp (scaled)');
@@ -808,7 +763,7 @@ classdef radarClass < handle
                 plot(time_gt_bpm, obj.HrGtEst, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'ECG GT');
             end
             if ~isempty(obj.HrEstFinal)
-                time_radar_bpm = obj.correlated_HrPeaks(2:end);
+                time_radar_bpm = obj.HrPeaksFinal(2:end);
                 plot(time_radar_bpm, obj.HrEstFinal, 'b.--', 'LineWidth', 1.2, 'DisplayName', 'HrEstSpikes');
             end
             title(sprintf('Heart Rate (BPM) - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
