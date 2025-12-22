@@ -44,7 +44,11 @@ windowSeconds=15;
 windowStep=1; 
 saveBaseDir = 'SavedAnalysisFigures'; 
 lambda = 0.0125 ;
-statistics = statisticsClass(max(IDrange), 5); %initiate full table so the indexes will stay the same
+%initiate full table so the indexes will stay the same
+statisticsAPMed = statisticsClass(max(IDrange), 5); % after median, without corr to GT
+statisticsPMed = statisticsClass(max(IDrange), 5); % after median and corr to GT
+statisticsAPKal = statisticsClass(max(IDrange), 5); % after Kalman, without corr to GT
+statisticsPKal = statisticsClass(max(IDrange), 5); % after Kalman and corr to GT
 if b_CLEAR_OLD && exist(saveBaseDir,'dir')
     rmdir(saveBaseDir,'s');
 end
@@ -169,14 +173,14 @@ for indx = 1:length(IDrange)
             'plot_RrRates',false);
             
         
-       statistics.updateTable(dataFull{indx,sz}.HrEstFinal,dataFull{indx,sz}.HrGtEst,indx,sz); 
+       statisticsAPMed.updateTable(dataFull{indx,sz}.HrEstFinal,dataFull{indx,sz}.HrGtEst,indx,sz); 
     end
 end
 
 
 
 %% 8. Save Results
-statistics.exportExcel();
+statisticsAPMed.exportExcel();
 
 if ~exist(saveBaseDir, 'dir')
     mkdir(saveBaseDir);
