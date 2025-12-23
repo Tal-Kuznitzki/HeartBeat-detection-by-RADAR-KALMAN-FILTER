@@ -229,35 +229,35 @@ classdef radarClass < handle
                     missed(i,2) = val;
                     final(i,1) = obj.ecgPeaks(i);
                     final(i,2) = -1;
-                    obj.vcorrelation_misses_locs(i) = -1;
+                    obj.vcorrelation_misses_locs(i,1) = -1;
                 else 
                     excess(loc) = 0;
-                    obj.vcorrelation_excess_locs(loc) = 0;
+                    obj.vcorrelation_excess_locs(loc,1) = 0;
                     final(i,1) = obj.ecgPeaks(i);
                     final(i,2) = localHr(loc);
                     localHr(loc) = inf; %making sure this value wont apply to 2 different beats.
                 end
             end
 
-           % new stuff
-           % --- 2. New Logic: Interpolate Misses (-1s) ---
-            %We map GT Time -> Radar Time using the valid pairs,
-            %then fill in the -1s based on their GT time.
-
-            validMask = final(:,2) ~= -1;
-            missingMask = final(:,2) == -1;
-
-            %Check if we have enough points to interpolate
-            if sum(validMask) > 1 && sum(missingMask) > 0
-                %Using 'pchip' (cubic) guarantees monotonicity for time vectors
-                interpValues = interp1(final(validMask, 1), final(validMask, 2), ...
-                    final(missingMask, 1), 'pchip', 'extrap');
-
-                %Replace -1s with interpolated time values
-                final(missingMask, 2) = interpValues;
-                fprintf('Fixed %d missing beats using interpolation.\n', sum(missingMask));
-            end
-            correlation = corr(final(:,1), final(:,2) );
+           % % new stuff
+           % % --- 2. New Logic: Interpolate Misses (-1s) ---
+           %  %We map GT Time -> Radar Time using the valid pairs,
+           %  %then fill in the -1s based on their GT time.
+           % 
+           %  validMask = final(:,2) ~= -1;
+           %  missingMask = final(:,2) == -1;
+           % 
+           %  %Check if we have enough points to interpolate
+           %  if sum(validMask) > 1 && sum(missingMask) > 0
+           %      %Using 'pchip' (cubic) guarantees monotonicity for time vectors
+           %      interpValues = interp1(final(validMask, 1), final(validMask, 2), ...
+           %          final(missingMask, 1), 'pchip', 'extrap');
+           % 
+           %      %Replace -1s with interpolated time values
+           %      final(missingMask, 2) = interpValues;
+           %      fprintf('Fixed %d missing beats using interpolation.\n', sum(missingMask));
+           %  end
+           % correlation = corr(final(:,1), final(:,2) );
             obj.correlated_HrPeaks = final;
             obj.HrGtMean = mean(final,2);
             obj.HrGtDiff = final(:,1) - final(:,2);
@@ -571,6 +571,7 @@ classdef radarClass < handle
             Hr_after_corr_fix = obj.HrEstFinal;% 60 ./ diff( obj.correlated_HrPeaks(:,2) );
             Hr_gt_after_corr_fix = obj.HrGtEst;%60 ./ diff( obj.correlated_HrPeaks(:,1) );
             hold on;
+            lengthmax= min(length(Hr_gt_after_corr_fix),length(Hr_gt_after_corr_fix));
             plot(Hr_gt_after_corr_fix,Hr_after_corr_fix,"DisplayName",'Ground truth to RADAR heart rate'...
                 ,'Marker','*','LineStyle','none')
             xlabel('ground truth HR')
