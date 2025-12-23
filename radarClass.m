@@ -571,8 +571,8 @@ classdef radarClass < handle
             Hr_after_corr_fix = obj.HrEstFinal;% 60 ./ diff( obj.correlated_HrPeaks(:,2) );
             Hr_gt_after_corr_fix = obj.HrGtEst;%60 ./ diff( obj.correlated_HrPeaks(:,1) );
             hold on;
-            lengthmax= min(length(Hr_gt_after_corr_fix),length(Hr_gt_after_corr_fix));
-            plot(Hr_gt_after_corr_fix,Hr_after_corr_fix,"DisplayName",'Ground truth to RADAR heart rate'...
+            lengthmax= min(length(Hr_after_corr_fix),length(Hr_gt_after_corr_fix));
+            plot(Hr_gt_after_corr_fix(1:lengthmax),Hr_after_corr_fix(1:lengthmax),"DisplayName",'Ground truth to RADAR heart rate'...
                 ,'Marker','*','LineStyle','none')
             xlabel('ground truth HR')
             ylabel('RADAR estimated HR')
@@ -596,7 +596,7 @@ classdef radarClass < handle
             if ~isempty(obj.HrPeaks)
                 peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks); %changed from HrPeaks
                 peakAmps1 = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksFinal); 
-                plot(obj.HrPeaksFinal, peakAmps*1e4, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks'); %changed from HrPeaks
+                plot(obj.HrPeaks, peakAmps*1e4, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks'); %changed from HrPeaks
                 plot(obj.HrPeaksFinal, peakAmps1*1e4, 'g*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks after spike fix'); %changed from HrPeaks
             end
             
