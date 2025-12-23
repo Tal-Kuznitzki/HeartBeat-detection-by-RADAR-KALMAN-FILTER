@@ -11,7 +11,7 @@
 % 9. Clean up (close figures)
 
 % --- STEP 1: Global Initialization (Run only once) ---
-b_CLEAN_START = true;
+b_CLEAN_START = false;
 if b_CLEAN_START
     clc; 
     clear all; 
@@ -31,8 +31,8 @@ b_plot_ALL = true;
 
 
 
-IDrange = 1:16 ; %11:12;   
-scenarios ={'Resting','Valsalva','Apnea'};% {'Resting','Valsalva','Apnea','Tiltdown','Tiltup'}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
+IDrange = 1 ; %11:12;   
+scenarios ={'Resting','Valsalva','Apnea','Tiltdown','Tiltup'}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
