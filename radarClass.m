@@ -556,7 +556,7 @@ classdef radarClass < handle
         % ---------------------------------------------------------
 
         %% Plot only the HR peaks and the signals (Radar vs ECG)
-        function h = plotCovDiag(obj)
+        function h = plotCovDiag(obj,name)
             h = []; % Default empty if no data
             % Check if estimates exist
             if isempty(obj.HrEst) || isempty(obj.HrGtEst)
@@ -567,19 +567,20 @@ classdef radarClass < handle
             h = figure('Name', 'Covariance_Diag_Analysis', 'Color', 'w');
             
             % Sync lengths
-          
+            
             Hr_after_corr_fix = obj.HrEstFinal;% 60 ./ diff( obj.correlated_HrPeaks(:,2) );
             Hr_gt_after_corr_fix = obj.HrGtEst;%60 ./ diff( obj.correlated_HrPeaks(:,1) );
             hold on;
+            title (['Ground Truth-Radar Pointwise Correlation for', name]);
             lengthmax= min(length(Hr_after_corr_fix),length(Hr_gt_after_corr_fix));
             plot(Hr_gt_after_corr_fix(1:lengthmax),Hr_after_corr_fix(1:lengthmax),"DisplayName",'Ground truth to RADAR heart rate'...
                 ,'Marker','*','LineStyle','none')
             xlabel('ground truth HR')
-            ylabel('RADAR estimated HR')
+            ylabel(['RADAR estimated HR of', name])
             
             plot((30:1:150),(30:1:150));
             %title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
-            legend('Measurements', 'Cov Diagonal'); grid on; hold off;
+            legend('Measurements', 'Corr Axis'); grid on; hold off;
         end       
         function h = plotHrpeaks(obj)
             h = figure('Name', 'Radar_ECG_Peaks', 'Color', 'w');
@@ -622,7 +623,7 @@ classdef radarClass < handle
         end
 
         %% Plot Bland-Altman plot
-        function h = plotBA(obj)
+        function h = plotBA(obj, name)
             h = []; % Default empty if no data
             % Check if estimates exist
             if isempty(obj.HrEst) || isempty(obj.HrGtEst)
@@ -641,7 +642,7 @@ classdef radarClass < handle
                 %     xlabel('ECG'); ylabel('Radar');
                 %     legend('show', 'Location', 'best');
                 end
-                title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+                title(sprintf('Bland-Altman of %s - ID: %s, Scenario: %s',name,string(obj.ID), obj.sceneario));
             end
             
             % % Sync lengths
@@ -893,18 +894,20 @@ classdef radarClass < handle
 
         %% Plot All and Optionally Save
       %% Plot All with Selection Flags
-        function [] = PlotAll(obj, bsave, saveDir, options) 
+      function [] = PlotAll(obj, bsave, saveDir,name, options) 
             % Arguments block allows named optional inputs
             arguments
                 obj
                 bsave (1,1) logical = false
                 saveDir (1,1) string = 'SavedAnalysisFigures'
+                name {mustBeText} = ' ' %NEW, REORDER CALLS TO PLOTALL
                 options.plot_HrPeaks (1,1) logical = true
                 options.plot_RrRates (1,1) logical = true
                 options.plot_RrSignals (1,1) logical = true
                 options.plot_BA (1,1) logical = true
                 options.plot_DashBoard (1,1) logical = true
                 options.plot_Errors (1,1) logical = true
+                options.plot_CorrAxis (1,1) logical = true
             end
 
             figHandles = gobjects(0); % Initialize empty graphics array
@@ -929,8 +932,12 @@ classdef radarClass < handle
 
             % 4. Bland Altman (only if data exists)
             if options.plot_BA
-                h4 = obj.plotBA();
+                h4 = obj.plotBA(name);
                 if isgraphics(h4), figHandles(end+1) = h4; end
+            end
+             if options.plot_CorrAxis %TODO is this right?
+                h41 = obj.plotCovDiag(name);
+                if isgraphics(h41), figHandles(end+1) = h41; end
             end
 
             % 5. Dashboard
