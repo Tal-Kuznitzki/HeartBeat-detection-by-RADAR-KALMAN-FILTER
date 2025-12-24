@@ -15,16 +15,22 @@ classdef radarClass < handle
         HrSignal
         RrSignal
         HrPeaks
-        HrPeaksAfterKalman
+        HrPeaksFinal
         RrPeaks
         ecgPeaks
         Rrpeaks_gt
-
+        correlated_HrPeaks %saving the corresponding peaks of gt and Hr
+        % correlated peak(i,2)=-1 if the peak in (i,1) had no match
+       
         %results
         HrEst
+        HrEstFinal
         HrEstAfterMedian
         HrGtEstAfterMedian
-        HrEstAfterKalman
+        HrEstSpikes
+        Hr_correlated_HrPeaks
+        excessLocsFromHr
+        missingLocsFromHr
         
         RrEst
         HrGtEst
@@ -41,7 +47,8 @@ classdef radarClass < handle
         rawErr2Hr
         correlation_misses
         correlation_excess
-
+        vcorrelation_excess_locs
+        vcorrelation_misses_locs
 
         %additional information
         vTimeOriginal
@@ -54,7 +61,7 @@ classdef radarClass < handle
         
     end
     properties(Constant)
-        %MaxDiffFromGt = 0.4; %maximum difference between beats of radar and GT allowed 
+        MaxDiffFromGt = 0.4; %maximum difference between beats of radar and GT allowed 
 
     end
     methods
@@ -89,7 +96,7 @@ classdef radarClass < handle
 
         end
         
-        %I-Q compensation- create radar_dist from radar_i and radar_Q
+        %I-Q compentasion- create radar_dist from radar_i and radar_Q
             %TODO
 
         % downSample radar dist- accept new fs or use default. change
@@ -185,18 +192,248 @@ classdef radarClass < handle
         end
 
         % finding the rates
-        function FindRates(obj)
+        function FindRates(obj,use_reference)
             obj.HrEst = 60 ./  diff(obj.HrPeaks);
             obj.HrGtEst = 60 ./  diff(obj.ecgPeaks); 
             obj.RrEst = 60 ./  diff(obj.RrPeaks);
             obj.RrGtEst = 60 ./ diff(obj.Rrpeaks_gt);            
+             % TODO: add rates for GT Rr
+            if(use_reference)
+                disp("using reference");
+                obj.HrEstFinal = 60 ./  diff(obj.HrPeaksFinal);
+                obj.Hr_correlated_HrPeaks = 60 ./  diff(obj.correlated_HrPeaks(:,2));
+            end
         end
-        function MedianHr(obj)
+        % align HR detected peaks to gt peaks- validation
+        % also returns a vector with missed beats and their offset,
+        % and a vector of false positives
+        function [missed,excess,final,corr] = CorrelatePeaks(obj, vpeaksToComp) %% correlated_HrPeaks
+                     
+            if(nargin <2)
+                disp("vpeaksToComp is empty in CorrelatePeaks");
+                localHr=obj.HrPeaks;
+            else
+            localHr=vpeaksToComp;
+            end
+
+            final=zeros(length(obj.ecgPeaks),2);
+            missed=zeros(length(obj.ecgPeaks),2);
+            excess = ones(length(localHr),1);
+            obj.vcorrelation_excess_locs  = ones(length(size(localHr)));
+            obj.vcorrelation_misses_locs  = zeros(length(size(obj.ecgPeaks)));
+            for i=1:length(obj.ecgPeaks)
+                diffI = abs(obj.ecgPeaks(i)-localHr);
+                [val,loc]=min(diffI);
+                if(val>obj.MaxDiffFromGt) %arbitrary value for max error
+                    missed(i,1) = obj.ecgPeaks(i);
+                    missed(i,2) = val;
+                    final(i,1) = obj.ecgPeaks(i);
+                    final(i,2) = -1;
+                    obj.vcorrelation_misses_locs(i,1) = -1;
+                else 
+                    excess(loc) = 0;
+                    obj.vcorrelation_excess_locs(loc,1) = 0;
+                    final(i,1) = obj.ecgPeaks(i);
+                    final(i,2) = localHr(loc);
+                    localHr(loc) = inf; %making sure this value wont apply to 2 different beats.
+                end
+            end
+
+           % % new stuff
+           % % --- 2. New Logic: Interpolate Misses (-1s) ---
+           %  %We map GT Time -> Radar Time using the valid pairs,
+           %  %then fill in the -1s based on their GT time.
+           % 
+           %  validMask = final(:,2) ~= -1;
+           %  missingMask = final(:,2) == -1;
+           % 
+           %  %Check if we have enough points to interpolate
+           %  if sum(validMask) > 1 && sum(missingMask) > 0
+           %      %Using 'pchip' (cubic) guarantees monotonicity for time vectors
+           %      interpValues = interp1(final(validMask, 1), final(validMask, 2), ...
+           %          final(missingMask, 1), 'pchip', 'extrap');
+           % 
+           %      %Replace -1s with interpolated time values
+           %      final(missingMask, 2) = interpValues;
+           %      fprintf('Fixed %d missing beats using interpolation.\n', sum(missingMask));
+           %  end
+           % correlation = corr(final(:,1), final(:,2) );
+            obj.correlated_HrPeaks = final;
+            obj.HrGtMean = mean(final,2);
+            obj.HrGtDiff = final(:,1) - final(:,2);
+            obj.correlation_misses=nnz( missed(:,1) ) ;
+            obj.correlation_excess = sum(excess(:,1)) ;
+            
+        end
+        % function to find missing beats (positives)
+        function [additions] = findMissingBeats(obj)    %% HrPeaksFinal
+            if(isempty(obj.HrPeaksFinal))
+                obj.HrPeaksFinal=obj.HrPeaks;
+            end
+            hrvec = obj.HrPeaksFinal(:);
+            diffs= diff(obj.HrPeaksFinal);
+            additions = [];
+            sumAdded=0;
+            hrLen=length(diffs)+1;
+            % go over diffs, if we find a diff that is +-10% x2 than the
+            % ones before and after it, wwe missed a bit, make sure the
+            % others make sense and are in the HR range.
+            %{
+                [1 2 4 5] %missing between i=2 and i=3
+                [1 2 1] i=2 is sus
+                avg = (hrvec(i+sumAdded)+hrvec(i+1+sumAdded))/2
+                hrvec= [hrvec(1:i+sumAdded) (avg) hrvec(i+1+sumAdded:len)]
+                len += 1;
+                sumAdded +=1;
+                additions = [additions; avg i]
+                i+=1; 
+            %}
+            for i=2:length(diffs)-1
+                if(diffs(i)> 0.9*(diffs(i-1) +diffs(i+1)))... %find anomalies
+                     &&(diffs(i)>1.5*(diffs(i-1)&&diffs(i)>1.5*diffs(i+1)))...   
+                    && (diffs(i-1)>0.33&&diffs(i-1)<2) &&...
+                        (diffs(i+1)>0.33&&diffs(i+1)<2) &&... %make sure peaks are valid
+                        (diffs(i)>0.6 &&diffs(i)<4 )
+                        % add a peak equal to the average of the last two
+                        %peaks, and rearragne the vectors, choose new i 
+                        avg = (hrvec(i+sumAdded)+hrvec(i+1+sumAdded))/2;
+                        hrvec= [hrvec(1:i+sumAdded) ; (avg) ; hrvec(i+1+sumAdded:hrLen)];
+                        additions = [additions; i+1+sumAdded avg];
+                        hrLen = hrLen + 1;
+                        sumAdded = sumAdded+1;
+                        
+                    
+                end
+            end
+            obj.HrPeaksFinal = hrvec;
+
+        end
+        % function to fix hr spikes on the hrEst
+        function [missingBeats, excessBeats] = FindHrSpikes(obj,norm,update) %%HrEstSpikes
+            % this function finds anomalies:
+            % excess peaks removed
+            % missing peaks added
+            % high jitter reduced
+            % input: power of jitter reduction (N/N+1)
+            % output: Nx2 of excess or missing beats, 
+            % first col for old index and 2nd col for new
+
+            hr = obj.HrEst;
+            N  = length(hr);
+            sizeDiff=0;
+            for i=2:N-2
+                % check if hr is out of bounds, if its too low, or 
+                % irregularly low, we are missing a beat, 
+                % double the value and concatenate a copy
+                % of it.
+                % 
+                % if its too high, or irregularly high,
+                % remove this sample. 
+                
+                missingBeats = [];
+                excessBeats = [];
+                effI= i+sizeDiff;
+                %high
+                if (hr(effI) > 180 || hr(effI)+hr(effI+1)>1.7*(hr(effI-1)+hr(effI+2)))&&...
+                    (hr(effI) > hr(effI-1) && hr(effI) > hr(effI+2))...
+                    && (hr(effI+1) > hr(effI-1) && hr(effI+1) > hr(effI+2))
+
+                    hr = [hr(1:effI-1);1/(1/(hr(effI)) + 1/(hr(effI+1)));...
+                                                hr(effI+2:N+sizeDiff)];
+                    sizeDiff=sizeDiff-1;
+                    excessBeats = [excessBeats ; i , effI-1]; 
+                    continue;
+                end
+                %find high var couple to skip
+                if(hr(effI)<0.65*hr(effI-1) && hr(effI+1)>1.35*hr(effI+2)) ||...
+                  (hr(effI)>1.35*hr(effI-1) && hr(effI+1)<0.65*hr(effI+2))
+                    
+                    hr(effI)   = (norm*hr(effI-1) + hr(effI))  /(norm+1);
+                    hr(effI+1) = (norm*hr(effI+2) + hr(effI+1))/(norm+1);
+
+                    continue;
+                end
+                %low
+                if ( hr(effI)<35 || hr(effI)<0.55*(hr(effI-1)+hr(effI+1))/2)
+                    % TODO, check if irregular high caused this
+                    hr(effI) = (hr(effI-1)+hr(effI+1))/2;
+                    hr = [hr(1:effI);hr(effI);hr(effI+1:N+sizeDiff)];
+                    sizeDiff=sizeDiff+1;
+                    missingBeats = [missingBeats; i , effI+1];
+                    continue;
+                end
+                
+            end
+            obj.excessLocsFromHr = excessBeats;
+            obj.missingLocsFromHr = missingBeats;
+            obj.HrEstSpikes = hr;
+            if (update)
+              ibi = 60 ./  obj.HrEstSpikes ;
+              ibi = ibi(:);
+              obj.HrPeaksFinal = obj.HrPeaks(1) + [0;cumsum(ibi)];
+                disp("we updated HrPeaksFinal");
+            end
+        end
+        % function to find false positives independently for radar
+        function [removals] = clearFalsePos(obj)                      %HrPeaksFinal        
+             if(isempty(obj.HrPeaksFinal))
+                obj.HrPeaksFinal=obj.HrPeaks;
+            end
+            % go over obj.HrPeaks, find beats that their diff is suspicous
+            diffs= diff(obj.HrPeaksFinal);
+            removals = zeros(size(obj.HrPeaksFinal));
+            for i=2:length(diffs)-2
+                %scenario 1: single phase shift
+                %scenario 2: false positive
+                if(diffs(i)<0.6*diffs(i-1) || diffs(i+1)<0.6*diffs(i+2))
+                   %suspected false positive in index i+1. 
+                   % [1 2 @2.5 3 4 5] error in i=3
+                   % [1 0.5 0.5 1 1 ] small diff found in i=2
+                   % now check if diff(i) + diff(i+1) is around a normal
+                   % diff
+                   potDiff=diffs(i)+diffs(i+1);
+                   avgDiff = (diffs(i-1)+diffs(i+2))/2;
+                   if(potDiff<1.5*(avgDiff) && avgDiff<2 && avgDiff>0.33) %decide to remove extra beat
+                       removals(i+1) = obj.HrPeaksFinal(i+1);
+                      
+                       obj.HrPeaksFinal(i+1) = 0;  
+                       
+                   end
+                end
+                
+            end %end of loop
+            obj.HrPeaksFinal= obj.HrPeaksFinal(obj.HrPeaksFinal>0); %remove removed beats 
+            
+            if length(obj.HrPeaksFinal) < 3
+                return; % Not enough peaks to continue analysis
+            end
+            diffs = diff(obj.HrPeaksFinal);
+            
+            for i=2:length(diffs)-2
+                %scenario 1: single phase shift:
+                 minI=max(2,i-10);
+                 meanWin= mean(diffs(minI:i));
+                 if ((diffs(i)>1.2*meanWin && diffs(i+1)<1.2*meanWin)...
+                  || (diffs(i)<1.2*diffs(i-1) && diffs(i+1)>1.2*diffs(i+2)))
+                     %beat i came late
+                     if(abs((diffs(i)+diffs(i+1)/2)-meanWin)<meanWin*0.5)
+                        obj.HrPeaksFinal(i+1) =...
+                       (obj.HrPeaksFinal(i+2)+obj.HrPeaksFinal(i))/2;
+                     end
+                 end
+             end
+            %after this function, you should run FindRates again to save he
+            %new Heart rate estimation.
+           
+            
+        end 
+        function h = MedianHr(obj)
+
           gtHr=obj.HrGtEst(:);
-          calculatedHr=obj.HrEst(:);
+          calculatedHr=obj.HrEstSpikes(:);
           minlen=min(length(gtHr),length(calculatedHr));
           gtHr=obj.HrGtEst(1:minlen);
-          calculatedHr=obj.HrEst(1:minlen);
+          calculatedHr=obj.HrEstSpikes(1:minlen);
           gt_after_median_filt=medfilt1(gtHr,7);
           calculatedHr_after_median_filt=medfilt1(calculatedHr,7);
 
@@ -218,6 +455,9 @@ classdef radarClass < handle
         hr_replaced_with_median_in_outliers=hr_replaced_with_median_in_outliers(:);
         gt_replaced_with_median_in_outliers=gt_replaced_with_median_in_outliers(:);
         cor_after_median_Filter_on_both_signals = corr(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers)
+        R = corrcoef(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers);
+
+        %obj.HrEstFinal = hr_replaced_with_median_in_outliers;
         obj.HrEstAfterMedian = hr_replaced_with_median_in_outliers;
         obj.HrGtEstAfterMedian = gt_replaced_with_median_in_outliers;
 
@@ -252,16 +492,32 @@ classdef radarClass < handle
         % 
         %   linkaxes
         end
+        
+
         function [] = CalcError(obj)
+            
             % pre validation with clearFalsePos, CorrelatePeaks ,
-            min_len = min(length(obj.HrGtEst), length(obj.HrEst));
-            v1=obj.HrEst(1:min_len);
+            % FindHrSpikes
+            min_len = min(length(obj.HrGtEst), length(obj.HrEstFinal));
+            v1=obj.HrEstFinal(1:min_len);
             v2=obj.HrGtEst(1:min_len);
             v2=v2(:);
             mseraw= (v1-v2).^2;
             obj.mseRaw = mean(mseraw);
             obj.maeRaw = mean(abs(v1-v2));
             obj.mse2HrRaw = sortrows([v2, mseraw]); % N,2, acending error per beat rate
+            
+            v1_gt = 60 ./ diff(obj.correlated_HrPeaks(:,1) );% first colum is GT in this matrix
+            v2_radar = 60 ./ diff(obj.correlated_HrPeaks(:,2) );
+            
+            raw_err = v1_gt-v2_radar;
+            mse_err = (raw_err).^2;
+            abs_err = abs(raw_err);
+            
+
+
+            obj.mseFitted = mean(mse_err);
+            obj.maeFitted = mean(abs_err);
             gt_vs_mse_raw_matrix = [v2, mseraw];
             gt_vs_rawerr_raw_matrix = [v2, v1-v2];
             gt_vs_abserr_raw_matrix = [v2, abs(v1-v2)];
@@ -300,7 +556,7 @@ classdef radarClass < handle
         % ---------------------------------------------------------
 
         %% Plot only the HR peaks and the signals (Radar vs ECG)
-        function h = plotCovDiag(obj,name,HrToCompare)
+        function h = plotCovDiag(obj,name)
             h = []; % Default empty if no data
             % Check if estimates exist
             if isempty(obj.HrEst) || isempty(obj.HrGtEst)
@@ -311,16 +567,27 @@ classdef radarClass < handle
             h = figure('Name', 'Covariance_Diag_Analysis', 'Color', 'w');
             
             % Sync lengths
+%<<<<<<< HEAD
+            
+            Hr_after_corr_fix = obj.HrEstFinal;% 60 ./ diff( obj.correlated_HrPeaks(:,2) );
+%=======
+            %before:
+            %Hr_after_corr_fix = obj.HrEstFinal;% 60 ./ diff( obj.correlated_HrPeaks(:,2) );
+            %now:
+            Hr_after_corr_fix = obj.HrEstSpikes;
+%>>>>>>> 34fd2e69edbfce473ff7974110ddfcc30f5153c1
+            Hr_gt_after_corr_fix = obj.HrGtEst;%60 ./ diff( obj.correlated_HrPeaks(:,1) );
             hold on;
             title (['Ground Truth-Radar Pointwise Correlation for', name]);
-            lengthmax= min(length(HrToCompare),length(obj.HrGtEstAfterMedian));
-            plot(obj.HrGtEstAfterMedian(1:lengthmax),HrToCompare(1:lengthmax),"DisplayName",' Median Ground truth to RADAR heart rate'...
+            lengthmax= min(length(Hr_after_corr_fix),length(Hr_gt_after_corr_fix));
+            plot(Hr_gt_after_corr_fix(1:lengthmax),Hr_after_corr_fix(1:lengthmax),"DisplayName",'Ground truth to RADAR heart rate'...
                 ,'Marker','*','LineStyle','none')
-            xlabel('ground truth HR post Median filter')
+            xlabel('ground truth HR')
             ylabel(['RADAR estimated HR of', name])
             
             plot((30:1:150),(30:1:150));
-            legend('Measurements', 'Corr Axis','Location','best'); grid on; hold off;
+            %title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            legend('Measurements', 'Corr Axis'); grid on; hold off;
         end       
         function h = plotHrpeaks(obj)
             h = figure('Name', 'Radar_ECG_Peaks', 'Color', 'w');
@@ -336,9 +603,9 @@ classdef radarClass < handle
             % Interpolate to find amplitude at peak times
             if ~isempty(obj.HrPeaks)
                 peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks); %changed from HrPeaks
-                %peakAmps1 = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksAfterKalman); 
+                peakAmps1 = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksFinal); 
                 plot(obj.HrPeaks, peakAmps*1e4, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks'); %changed from HrPeaks
-                %plot(obj.HrPeaksAfterKalman, peakAmps1*1e4, 'g*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks after spike fix'); %changed from HrPeaks
+                plot(obj.HrPeaksFinal, peakAmps1*1e4, 'g*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks after spike fix'); %changed from HrPeaks
             end
             
             ylabel('Amp (scaled)');
@@ -363,7 +630,7 @@ classdef radarClass < handle
         end
 
         %% Plot Bland-Altman plot
-        function h = plotBA(obj, name,HrToCompare)
+        function h = plotBA(obj, name)
             h = []; % Default empty if no data
             % Check if estimates exist
             if isempty(obj.HrEst) || isempty(obj.HrGtEst)
@@ -373,9 +640,10 @@ classdef radarClass < handle
 
             h = figure('Name', 'Bland_Altman_Analysis', 'Color', 'w');
 
-            if ~isempty(obj.HrGtEst) % && ~isempty(obj.HrEstAfterKalman
+            if ~isempty(obj.HrGtEst) && ~isempty(obj.HrEstFinal)
                 if exist('BlandAltman', 'file')
-                   BlandAltman(HrToCompare,obj.HrGtEst, 2, 0);
+                    obj.HrEstFinal=obj.HrEstFinal(:);
+                   BlandAltman(obj.correlated_HrPeaks(:,1),obj.correlated_HrPeaks(:,2), 2, 0);
                 % else
                 %     plot(vec_ecg, vec_radar, 'o', 'DisplayName', 'Data Points'); 
                 %     xlabel('ECG'); ylabel('Radar');
@@ -383,7 +651,30 @@ classdef radarClass < handle
                 end
                 title(sprintf('Bland-Altman of %s - ID: %s, Scenario: %s',name,string(obj.ID), obj.sceneario));
             end
-                title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            
+            % % Sync lengths
+            % if exist('BlandAltman', 'file')
+            % 
+            % 
+            %     Hr_after_corr_fix = 60 ./ diff( obj.correlated_HrPeaks(:,2) );
+            %     Hr_gt_after_corr_fix = 60 ./ diff( obj.correlated_HrPeaks(:,1) );
+            % 
+            %     BlandAltman(Hr_gt_after_corr_fix, Hr_after_corr_fix, 2, 0);
+            % else
+            %     Fallback
+            %     diffs = vec_ecg - vec_radar;
+            %     means = (vec_ecg + vec_radar) / 2;
+            %     plot(means, diffs, 'o', 'DisplayName', 'Data Points');
+            %     hold on;
+            %     yline(mean(diffs), '-r', 'Mean Diff', 'DisplayName', 'Mean Difference');
+            %     yline(mean(diffs) + 1.96*std(diffs), '--r', 'DisplayName', '+1.96 SD');
+            %     yline(mean(diffs) - 1.96*std(diffs), '--r', 'DisplayName', '-1.96 SD');
+            %     xlabel('Mean of methods'); ylabel('Difference');
+            %     legend('show', 'Location', 'best');
+            %     hold off;
+           
+            
+            title(sprintf('Bland-Altman - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
         end
 
        %% Plots respiration rate signal (Split into 2 Figures)
@@ -446,7 +737,7 @@ classdef radarClass < handle
         end    
 
        %% Plot the full dashboard (Summary)
-       function h = plotDashBoard(obj,name,HrToCompare) 
+        function h = plotDashBoard(obj) 
             h = figure('Name', 'Summary_Dashboard', 'Units', 'normalized', 'Position', [0.1 0.1 0.6 0.8], 'Color', 'w');
             
             ax_link = [];
@@ -456,10 +747,8 @@ classdef radarClass < handle
             hold on;
             plot(obj.vTimeNew, obj.HrSignal, 'b', 'DisplayName', 'Radar Signal');
             if ~isempty(obj.HrPeaks)
-                peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks); %changed form HrPeaks
-                plot(obj.HrPeaks, peakAmps, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
-                % peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksFinal); %changed form HrPeaks
-                % plot(obj.HrPeaksFinal, peakAmps, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
+                peakAmps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksFinal); %changed form HrPeaks
+                plot(obj.HrPeaksFinal, peakAmps, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
             end
             title(sprintf('Radar Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             ylabel('Amp'); legend('show', 'Location', 'best'); grid on; axis tight; hold off;
@@ -482,20 +771,18 @@ classdef radarClass < handle
                 time_gt_bpm = obj.ecgPeaks(2:end); 
                 plot(time_gt_bpm, obj.HrGtEst, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'ECG GT');
             end
-            % if ~isempty(obj.HrEstFinal)
-            %     time_radar_bpm = obj.HrPeaksFinal(2:end);
-            %     plot(time_radar_bpm, obj.HrEstFinal, 'b.--', 'LineWidth', 1.2, 'DisplayName', 'HrEstSpikes');
-            % end
-              time_radar_bpm = obj.HrPeaks(2:end); %% TODO: Verify time vector! ! ! ! !!
-             plot(time_radar_bpm, obj.HrEst, 'b.--', 'LineWidth', 1.2, 'DisplayName', 'HrEstSpikes');
+            if ~isempty(obj.HrEstFinal)
+                time_radar_bpm = obj.HrPeaksFinal(2:end);
+                plot(time_radar_bpm, obj.HrEstFinal, 'b.--', 'LineWidth', 1.2, 'DisplayName', 'HrEstSpikes');
+            end
             title(sprintf('Heart Rate (BPM) - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             xlabel('Time (s)'); ylabel('BPM'); legend('show', 'Location', 'best'); grid on; axis tight; hold off;
 
             % 4. Bland-Altman (NOT LINKED)
             subplot(4,1,4);
-            if ~isempty(obj.HrGtEst) && ~isempty(obj.HrEst)
+            if ~isempty(obj.HrGtEst) && ~isempty(obj.HrEstFinal)
                 if exist('BlandAltman', 'file')
-                   BlandAltman(HrToCompare,obj.HrGtEst, 2, 0);
+                    BlandAltman(obj.correlated_HrPeaks(:,1),obj.correlated_HrPeaks(:,2), 2, 0);
                 % else
                 %     plot(vec_ecg, vec_radar, 'o', 'DisplayName', 'Data Points'); 
                 %     xlabel('ECG'); ylabel('Radar');
@@ -507,9 +794,6 @@ classdef radarClass < handle
             linkaxes(ax_link, 'x');            
         end
         function h = plot_examples(obj)
-
-
-          % TODO - REVAMP DRAWINGS AND TITLES TO FIT THE WANTED SIGNAL. 
          h = gobjects(0); % Initialize graphics array
 
          % --- FIGURE 1: Peaks Comparison on HrSignal & ECG ---
@@ -527,10 +811,10 @@ classdef radarClass < handle
             amps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks);
             plot(obj.HrPeaks, amps, 'g*', 'MarkerSize', 6, 'DisplayName', 'Initial Peaks');
          end
-         % if ~isempty(obj.HrPeaksFinal)
-         %    amps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksFinal);
-         %    plot(obj.HrPeaksFinal, amps, 'r*', 'MarkerSize', 8, 'DisplayName', 'Final Peaks');
-         % end
+         if ~isempty(obj.HrPeaksFinal)
+            amps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksFinal);
+            plot(obj.HrPeaksFinal, amps, 'r*', 'MarkerSize', 8, 'DisplayName', 'Final Peaks');
+         end
          legend('show', 'Location', 'best'); grid on; hold off;
 
          % Subplot 2: ECG Signal with ECG Peaks vs Radar Peaks (Matched)
@@ -542,7 +826,21 @@ classdef radarClass < handle
          if ~isempty(obj.ecgPeaks)
              amps = interp1(obj.vTimeOriginal, obj.ecg_gt, obj.ecgPeaks);
              plot(obj.ecgPeaks, amps, 'bo', 'MarkerSize', 6, 'DisplayName', 'ECG Peaks (GT)');
-         end       
+         end
+         
+         % Radar matched peaks (Column 2 of correlated_HrPeaks), filtered for valid GT matches
+         % (Assuming column 1 > 0 means valid GT match exists)
+         % We also ensure col 2 is not -1 (miss) before plotting on time axis
+         valid_corr_mask = (obj.correlated_HrPeaks(:,1) > 0) & (obj.correlated_HrPeaks(:,2) > 0);
+         radar_matched_peaks = obj.correlated_HrPeaks(valid_corr_mask, 2);
+         
+         if ~isempty(radar_matched_peaks)
+             amps = interp1(obj.vTimeOriginal, obj.ecg_gt, radar_matched_peaks, 'linear', 0); 
+             % using '0' extrapolate value or check bounds, usually within range
+             plot(radar_matched_peaks, amps, 'rx', 'MarkerSize', 8, 'LineWidth', 1.5, 'DisplayName', 'Matched Radar Peaks');
+         end
+         legend('show', 'Location', 'best'); grid on; hold off;
+
          % Subplot 3: Radar Signal with Initial Peaks vs GT Peaks (Matched)
          ax_link(3) = subplot(3,1,3);
          hold on;
@@ -553,18 +851,26 @@ classdef radarClass < handle
             amps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks);
             plot(obj.HrPeaks, amps, 'g*', 'MarkerSize', 6, 'DisplayName', 'Radar Peaks');
          end
+         
+         % GT matched peaks (Column 1 of correlated_HrPeaks), filtered
+         gt_matched_peaks = obj.correlated_HrPeaks(valid_corr_mask, 1);
+         
+         if ~isempty(gt_matched_peaks)
+             amps = interp1(obj.vTimeNew, obj.HrSignal, gt_matched_peaks, 'linear', 0);
+             plot(gt_matched_peaks, amps, 'mo', 'MarkerSize', 6, 'LineWidth', 1.5, 'DisplayName', 'Matched GT Peaks');
+         end
          legend('show', 'Location', 'best'); grid on; hold off;
          
          linkaxes(ax_link, 'x');
 
          % --- FIGURE 2: Heart Rate Comparisons ---
-         h(end+1) = figure('Name', 'Heart_Rate_Comparison', 'Color', 'w');
+         h(end+1) = figure('Name', 'Heart_Rate_Comparisons', 'Color', 'w');
          
          % Create Hr_corr_fix
          % Logic: Calculate instantaneous HR from consecutive valid matches in correlated_HrPeaks
          % Filter for 40-140 BPM range
-         gt_peaks = obj.ecgPeaks;
-         radar_peaks = obj.HrPeaks;
+         gt_peaks = obj.correlated_HrPeaks(:, 1);
+         radar_peaks = obj.correlated_HrPeaks(:, 2);
          
          is_match = radar_peaks > 0; % Valid radar peaks (not -1)
          
@@ -596,9 +902,9 @@ classdef radarClass < handle
          ax_hr(2) = subplot(4,1,2); hold on; grid on;
          title('HR after filtering and preproccessing vs GT vs GT after median');
          plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
-         % if ~isempty(obj.HrEstSpikes)
-         %    plot(obj.HrEstSpikes, 'b','DisplayName', 'Radar Est after preproc');
-         % end
+         if ~isempty(obj.HrEstSpikes)
+            plot(obj.HrEstSpikes, 'b','DisplayName', 'Radar Est after preproc');
+         end
          plot(obj.HrGtEstAfterMedian, 'g',  'DisplayName', 'GT After Median');
          legend('show', 'Location', 'best');
 
@@ -726,28 +1032,30 @@ classdef radarClass < handle
                 catch ME
                     fprintf(2, 'Warning: Could not save %s. Error: %s\n', baseFileName, ME.message);
                 end
-                close all;
             end
         end
 
         %% Plot All and Optionally Save
       %% Plot All with Selection Flags
-
-      function [] = PlotAll(obj, bsave, saveDir,name,HrToCompare, options) 
+%<<<<<<< HEAD
+      function [] = PlotAll(obj, bsave, saveDir,name, options) 
+%=======
             arguments
                 obj
                 bsave (1,1) logical = false
                 saveDir (1,1) string = 'SavedAnalysisFigures'
                 name {mustBeText} = ' ' %NEW, REORDER CALLS TO PLOTALL
-                HrToCompare = obj.HrEst ;
                 options.plot_HrPeaks (1,1) logical = true
                 options.plot_RrRates (1,1) logical = true
                 options.plot_RrSignals (1,1) logical = true
                 options.plot_BA (1,1) logical = true
                 options.plot_DashBoard (1,1) logical = true
                 options.plot_Errors (1,1) logical = true
+%<<<<<<< HEAD
                 options.plot_CorrAxis (1,1) logical = true
-                options.plot_examples (1,1) logical = true 
+%=======
+                options.plot_examples (1,1) logical = true % Added new option
+%>>>>>>> 34fd2e69edbfce473ff7974110ddfcc30f5153c1
             end
 
             figHandles = gobjects(0); % Initialize empty graphics array
@@ -772,17 +1080,17 @@ classdef radarClass < handle
 
             % 4. Bland Altman (only if data exists)
             if options.plot_BA
-                h4 = obj.plotBA(name,HrToCompare);
+                h4 = obj.plotBA(name);
                 if isgraphics(h4), figHandles(end+1) = h4; end
             end
              if options.plot_CorrAxis %TODO is this right?
-                h41 = obj.plotCovDiag(name,HrToCompare);
+                h41 = obj.plotCovDiag(name);
                 if isgraphics(h41), figHandles(end+1) = h41; end
             end
 
             % 5. Dashboard
             if options.plot_DashBoard
-                h5 = obj.plotDashBoard(name,HrToCompare);
+                h5 = obj.plotDashBoard();
                 if isgraphics(h5), figHandles(end+1) = h5; end
             end
 
