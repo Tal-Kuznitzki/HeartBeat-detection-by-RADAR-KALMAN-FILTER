@@ -11,7 +11,7 @@
 % 9. Clean up (close figures)
 
 % --- STEP 1: Global Initialization (Run only once) ---
-b_CLEAN_START = true;
+b_CLEAN_START = false;
 if b_CLEAN_START
     clc; 
     clear all; 

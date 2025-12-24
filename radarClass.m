@@ -567,8 +567,15 @@ classdef radarClass < handle
             h = figure('Name', 'Covariance_Diag_Analysis', 'Color', 'w');
             
             % Sync lengths
+%<<<<<<< HEAD
             
             Hr_after_corr_fix = obj.HrEstFinal;% 60 ./ diff( obj.correlated_HrPeaks(:,2) );
+%=======
+            %before:
+            %Hr_after_corr_fix = obj.HrEstFinal;% 60 ./ diff( obj.correlated_HrPeaks(:,2) );
+            %now:
+            Hr_after_corr_fix = obj.HrEstSpikes;
+%>>>>>>> 34fd2e69edbfce473ff7974110ddfcc30f5153c1
             Hr_gt_after_corr_fix = obj.HrGtEst;%60 ./ diff( obj.correlated_HrPeaks(:,1) );
             hold on;
             title (['Ground Truth-Radar Pointwise Correlation for', name]);
@@ -786,6 +793,142 @@ classdef radarClass < handle
 
             linkaxes(ax_link, 'x');            
         end
+        function h = plot_examples(obj)
+         h = gobjects(0); % Initialize graphics array
+
+         % --- FIGURE 1: Peaks Comparison on HrSignal & ECG ---
+         h(end+1) = figure('Name', 'Peaks_Comparison', 'Color', 'w');
+         
+         ax_link = [];
+
+         % Subplot 1: Radar Signal with Initial vs Final Peaks
+         ax_link(1) = subplot(3,1,1);
+         hold on;
+         title(sprintf('Radar Signal: Initial vs Final Peaks - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+         plot(obj.vTimeNew, obj.HrSignal, 'b', 'DisplayName', 'Radar Signal');
+         
+         if ~isempty(obj.HrPeaks)
+            amps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks);
+            plot(obj.HrPeaks, amps, 'g*', 'MarkerSize', 6, 'DisplayName', 'Initial Peaks');
+         end
+         if ~isempty(obj.HrPeaksFinal)
+            amps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksFinal);
+            plot(obj.HrPeaksFinal, amps, 'r*', 'MarkerSize', 8, 'DisplayName', 'Final Peaks');
+         end
+         legend('show', 'Location', 'best'); grid on; hold off;
+
+         % Subplot 2: ECG Signal with ECG Peaks vs Radar Peaks (Matched)
+         ax_link(2) = subplot(3,1,2);
+         hold on;
+         title('ECG Signal: GT Peaks vs Correlated Radar Peaks');
+         plot(obj.vTimeOriginal, obj.ecg_gt, 'k', 'DisplayName', 'ECG Signal');
+         
+         if ~isempty(obj.ecgPeaks)
+             amps = interp1(obj.vTimeOriginal, obj.ecg_gt, obj.ecgPeaks);
+             plot(obj.ecgPeaks, amps, 'bo', 'MarkerSize', 6, 'DisplayName', 'ECG Peaks (GT)');
+         end
+         
+         % Radar matched peaks (Column 2 of correlated_HrPeaks), filtered for valid GT matches
+         % (Assuming column 1 > 0 means valid GT match exists)
+         % We also ensure col 2 is not -1 (miss) before plotting on time axis
+         valid_corr_mask = (obj.correlated_HrPeaks(:,1) > 0) & (obj.correlated_HrPeaks(:,2) > 0);
+         radar_matched_peaks = obj.correlated_HrPeaks(valid_corr_mask, 2);
+         
+         if ~isempty(radar_matched_peaks)
+             amps = interp1(obj.vTimeOriginal, obj.ecg_gt, radar_matched_peaks, 'linear', 0); 
+             % using '0' extrapolate value or check bounds, usually within range
+             plot(radar_matched_peaks, amps, 'rx', 'MarkerSize', 8, 'LineWidth', 1.5, 'DisplayName', 'Matched Radar Peaks');
+         end
+         legend('show', 'Location', 'best'); grid on; hold off;
+
+         % Subplot 3: Radar Signal with Initial Peaks vs GT Peaks (Matched)
+         ax_link(3) = subplot(3,1,3);
+         hold on;
+         title('Radar Signal: Radar Peaks vs Correlated GT Peaks');
+         plot(obj.vTimeNew, obj.HrSignal, 'b', 'DisplayName', 'Radar Signal');
+         
+         if ~isempty(obj.HrPeaks)
+            amps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks);
+            plot(obj.HrPeaks, amps, 'g*', 'MarkerSize', 6, 'DisplayName', 'Radar Peaks');
+         end
+         
+         % GT matched peaks (Column 1 of correlated_HrPeaks), filtered
+         gt_matched_peaks = obj.correlated_HrPeaks(valid_corr_mask, 1);
+         
+         if ~isempty(gt_matched_peaks)
+             amps = interp1(obj.vTimeNew, obj.HrSignal, gt_matched_peaks, 'linear', 0);
+             plot(gt_matched_peaks, amps, 'mo', 'MarkerSize', 6, 'LineWidth', 1.5, 'DisplayName', 'Matched GT Peaks');
+         end
+         legend('show', 'Location', 'best'); grid on; hold off;
+         
+         linkaxes(ax_link, 'x');
+
+         % --- FIGURE 2: Heart Rate Comparisons ---
+         h(end+1) = figure('Name', 'Heart_Rate_Comparisons', 'Color', 'w');
+         
+         % Create Hr_corr_fix
+         % Logic: Calculate instantaneous HR from consecutive valid matches in correlated_HrPeaks
+         % Filter for 40-140 BPM range
+         gt_peaks = obj.correlated_HrPeaks(:, 1);
+         radar_peaks = obj.correlated_HrPeaks(:, 2);
+         
+         is_match = radar_peaks > 0; % Valid radar peaks (not -1)
+         
+         % We need consecutive valid matches to compute a diff
+         valid_consecutive = is_match(1:end-1) & is_match(2:end);
+         
+         diffs = radar_peaks(2:end) - radar_peaks(1:end-1);
+         hr_vals = 60 ./ diffs; % Instantaneous HR
+         
+         % Create vector aligned with GT intervals (length N-1)
+         Hr_corr_fix = nan(length(gt_peaks)-1, 1);
+         Hr_corr_fix(valid_consecutive) = hr_vals(valid_consecutive);
+         
+         % Mask 40-140
+         mask_range = (Hr_corr_fix >= 40) & (Hr_corr_fix <= 140);
+         Hr_corr_fix(~mask_range) = NaN; 
+
+         ax_hr = [];
+
+         % Subplot 1
+         ax_hr(1) = subplot(4,1,1); hold on; grid on;
+         title(sprintf('HR Comparison: HR after filtering vs GT vs GT after median - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+         plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
+         plot(obj.HrEst, 'b', 'DisplayName', 'Radar Est');
+         plot(obj.HrGtEstAfterMedian, 'g','DisplayName', 'GT After Median');
+         legend('show', 'Location', 'best');
+
+         % Subplot 2
+         ax_hr(2) = subplot(4,1,2); hold on; grid on;
+         title('HR after filtering and preproccessing vs GT vs GT after median');
+         plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
+         if ~isempty(obj.HrEstSpikes)
+            plot(obj.HrEstSpikes, 'b','DisplayName', 'Radar Est after preproc');
+         end
+         plot(obj.HrGtEstAfterMedian, 'g',  'DisplayName', 'GT After Median');
+         legend('show', 'Location', 'best');
+
+         % Subplot 3
+         ax_hr(3) = subplot(4,1,3); hold on; grid on;
+         title('HR after median vs GT vs GT after median');
+         plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
+         if ~isempty(obj.HrEstAfterMedian)
+             plot(obj.HrEstAfterMedian, 'b','DisplayName', 'Radar Est After Median');
+         end
+         plot(obj.HrGtEstAfterMedian, 'g','DisplayName', 'GT After Median');
+         legend('show', 'Location', 'best');
+
+         % Subplot 4
+         ax_hr(4) = subplot(4,1,4); hold on; grid on;
+         title(' HR (Correlated Fix) vs GT vs GT after median');
+         plot(obj.HrGtEst, 'r', 'LineWidth', 1, 'DisplayName', 'GT Est');
+         plot(obj.HrGtEstAfterMedian, 'g', 'LineWidth', 1, 'DisplayName', 'GT After Median');
+         plot(Hr_corr_fix, 'b.-', 'LineWidth', 1, 'DisplayName', 'Hr Corr Fix');
+         legend('show', 'Location', 'best');
+         xlabel('Beat Index'); ylabel('BPM');
+
+         linkaxes(ax_hr, 'x');
+     end
 %% Plot Error Analysis (Corrected Titles)
     function h = plotErrors(obj)
             h = figure('Name', 'HR_Error_Analysis', 'Color', 'w');
@@ -894,8 +1037,9 @@ classdef radarClass < handle
 
         %% Plot All and Optionally Save
       %% Plot All with Selection Flags
+%<<<<<<< HEAD
       function [] = PlotAll(obj, bsave, saveDir,name, options) 
-            % Arguments block allows named optional inputs
+%=======
             arguments
                 obj
                 bsave (1,1) logical = false
@@ -907,7 +1051,11 @@ classdef radarClass < handle
                 options.plot_BA (1,1) logical = true
                 options.plot_DashBoard (1,1) logical = true
                 options.plot_Errors (1,1) logical = true
+%<<<<<<< HEAD
                 options.plot_CorrAxis (1,1) logical = true
+%=======
+                options.plot_examples (1,1) logical = true % Added new option
+%>>>>>>> 34fd2e69edbfce473ff7974110ddfcc30f5153c1
             end
 
             figHandles = gobjects(0); % Initialize empty graphics array
@@ -952,6 +1100,18 @@ classdef radarClass < handle
                 if isgraphics(h6), figHandles(end+1) = h6; end
             end
 
+            % 7. Examples (New Figures)
+            if options.plot_examples
+                h7 = obj.plot_examples();
+                if ~isempty(h7)
+                     for k=1:length(h7)
+                         if isgraphics(h7(k))
+                            figHandles(end+1) = h7(k); 
+                         end
+                     end
+                end
+            end
+
             % Save if requested
             if bsave
                 obj.saveFigures(figHandles, saveDir);
@@ -961,7 +1121,6 @@ classdef radarClass < handle
             end
         end
     end
-
     methods (Access = private)
         function y_interp = replaceOutliersByInterp(obj, y, outlierIdxOrMask) %#ok<INUSL>
             % Replace outliers by interpolation over index/time.
