@@ -191,6 +191,7 @@ classdef radarClass < handle
             obj.RrEst = 60 ./  diff(obj.RrPeaks);
             obj.RrGtEst = 60 ./ diff(obj.Rrpeaks_gt);            
         end
+
         function MedianHr(obj,size)
             if(nargin<2)
                 size=10;
@@ -220,7 +221,7 @@ classdef radarClass < handle
           
         hr_replaced_with_median_in_outliers=hr_replaced_with_median_in_outliers(:);
         gt_replaced_with_median_in_outliers=gt_replaced_with_median_in_outliers(:);
-       % cor_after_median_Filter_on_both_signals = corr(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers)
+        cor_after_median_Filter_on_both_signals = corr(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers)
         obj.HrEstAfterMedian = hr_replaced_with_median_in_outliers;
         obj.HrGtEstAfterMedian = gt_replaced_with_median_in_outliers;
 
@@ -329,7 +330,7 @@ classdef radarClass < handle
 %     disp("ERROR");
 % else
 %     HR0 = median(hr0(1:min(5,numel(hr0))));
-%     HR0 = median(hr0);
+%     %HR0 = median(hr0);
 % end
 % HR0 = min(max(HR0, HRmin), HRmax);
 % HR0_d=0;
@@ -437,9 +438,9 @@ classdef radarClass < handle
 % obj.HrPeaksAfterKalman = pk_rec;
 % 
 % end
-%
 
-% second implement
+
+%second implement
 function KalmanFilterBeats(obj)
     % Improved Kalman Filter for Heart Rate
     % 1. Robust against NaN/Empty inputs.
@@ -478,8 +479,8 @@ function KalmanFilterBeats(obj)
     end
 
     P = 10;           % Initial uncertainty
-    Q = 0.5;          % Process noise (Standard deviation of beat-to-beat change)
-    R_base = 5.0;     % Measurement noise (Trust in the radar peak location)
+    Q = 0.4;          % Process noise (Standard deviation of beat-to-beat change) oldval 0.5
+    R_base = 6.0;     % Measurement noise (Trust in the radar peak location) oldval 5 
 
     hr_hat = nan(size(hr_meas));
 
@@ -997,33 +998,33 @@ end
          ax_hr = [];
 
          % Subplot 1
-         ax_hr(1) = subplot(2,1,1); hold on; grid on;
-         title(sprintf('HR Comparison: HR after filtering vs GT vs GT after median - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
-         plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
+         ax_hr(1) = subplot(3,1,1); hold on; grid on;
+         title(sprintf('HR Comparison: HR vs GT after median - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+        % plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
          plot(obj.HrEst, 'b', 'DisplayName', 'Radar Est');
          plot(obj.HrGtEstAfterMedian, 'g--','DisplayName', 'GT After Median');
          legend('show', 'Location', 'best');
 
          % Subplot 2
-         ax_hr(2) = subplot(2,1,2); hold on; grid on;
-         title('HR after filtering and preproccessing vs GT vs GT after median');
-         plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
+         ax_hr(2) = subplot(3,1,2); hold on; grid on;
+         title('HR after Kalman vs GT after median');
+        % plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
           if ~isempty(obj.HrEstAfterKalman)
              plot(obj.HrEstAfterKalman, 'b','DisplayName', 'Radar Est after kalman');
           end
          plot(obj.HrGtEstAfterMedian, 'g--',  'DisplayName', 'GT After Median');
          legend('show', 'Location', 'best');
 
-         % Subplot 3
-         % ax_hr(3) = subplot(4,1,3); hold on; grid on;
-         % title('HR after median vs GT vs GT after median');
-         % plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
-         % if ~isempty(obj.HrEstAfterMedian)
-         %     plot(obj.HrEstAfterMedian, 'b','DisplayName', 'Radar Est After Median');
-         % end
-         % plot(obj.HrGtEstAfterMedian, 'g','DisplayName', 'GT After Median');
-         % legend('show', 'Location', 'best');
-         % 
+         %Subplot 3
+         ax_hr(3) = subplot(3,1,3); hold on; grid on;
+         title('HR after median vs GT after median');
+       %  plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
+         if ~isempty(obj.HrEstAfterMedian)
+             plot(obj.HrEstAfterMedian, 'b','DisplayName', 'Radar Est After Median');
+         end
+         plot(obj.HrGtEstAfterMedian, 'g','DisplayName', 'GT After Median');
+         legend('show', 'Location', 'best');
+
          % % Subplot 4
          % ax_hr(4) = subplot(4,1,4); hold on; grid on;
          % title(' HR (Correlated Fix) vs GT vs GT after median');
@@ -1033,7 +1034,7 @@ end
          % legend('show', 'Location', 'best');
          % xlabel('Beat Index'); ylabel('BPM');
 
-         linkaxes(ax_hr, 'x');
+         linkaxes(ax_hr, 'xy');
      end
 %% Plot Error Analysis (Corrected Titles)
     function h = plotErrors(obj)

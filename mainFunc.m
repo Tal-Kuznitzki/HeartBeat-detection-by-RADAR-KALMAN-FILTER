@@ -35,7 +35,7 @@ b_plot_ALL = true;
 
 
 
-IDrange = 1 ; %11:12;   
+IDrange = 7 ; %11:12;   
 scenarios ={'Resting'};% {'Resting','Valsalva','Apnea','Tiltdown','Tiltup'}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
