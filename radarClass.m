@@ -478,10 +478,10 @@ function KalmanFilterBeats(obj)
         x = median(valid_data(1:min(5, end)));
     end
 
-    P = 10;           % Initial uncertainty
-    Q = 0.4;          % Process noise (Standard deviation of beat-to-beat change) oldval 0.5
-    R_base = 6.0;     % Measurement noise (Trust in the radar peak location) oldval 5 
-
+    P = 5;           % Initial uncertainty 10
+    Q = 5.0;          % Process noise (Standard deviation of beat-to-beat change) oldval 0.5
+    R_base = 7.5;     % Measurement noise (Trust in the radar peak location) oldval 5 
+        %best so far: 5 5 7.5
     hr_hat = nan(size(hr_meas));
 
     % ---- 3. Filtering Loop ----
