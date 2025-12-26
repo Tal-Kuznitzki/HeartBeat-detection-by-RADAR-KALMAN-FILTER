@@ -256,9 +256,8 @@ classdef radarClass < handle
         %   linkaxes
         end
         function [] = CalcError(obj)
-            % pre validation with clearFalsePos, CorrelatePeaks ,
-            min_len = min(length(obj.HrGtEst), length(obj.HrEst));
-            v1=obj.HrEst(1:min_len);
+            min_len = min(length(obj.HrGtEst), length(obj.HrEstAfterKalman));
+            v1=obj.HrEstAfterKalman(1:min_len);
             v2=obj.HrGtEst(1:min_len);
             v2=v2(:);
             mseraw= (v1-v2).^2;
@@ -270,177 +269,432 @@ classdef radarClass < handle
             gt_vs_abserr_raw_matrix = [v2, abs(v1-v2)];
             obj.mse2Hr = sortrows(gt_vs_mse_raw_matrix); % N,2, acending error per beat rate
             obj.rawErr2Hr = sortrows(gt_vs_rawerr_raw_matrix ); 
-            obj.mae2Hr = sortrows(gt_vs_abserr_raw_matrix );
-
-
-
-
-            
-            
-
-
-            
+            obj.mae2Hr = sortrows(gt_vs_abserr_raw_matrix );   
         end
+
 %% KALMAN 
-function KalmanFilterBeats(obj, b_both)
-% KalmanFilterBeats
-% Applies a Kalman filter on beat-to-beat HR derived from obj.HrPeaks and:
-%   1) saves corrected peak times in obj.HrPeaksAfterKalman
-%   2) saves HR estimate (bpm) in obj.HrEstAfterKalman (beat-rate sequence)
-% If b_both==1: also applies a KF directly to obj.HrEst (if exists) and
-% uses that filtered HR instead (or in addition) for HrEstAfterKalman.
+
+%OLD KALMAN IMPL
+
+% function KalmanFilterBeats(obj, b_both)
+% % KalmanFilterBeats
+% % Applies a Kalman filter on beat-to-beat HR derived from obj.HrPeaks and:
+% %   1) saves corrected peak times in obj.HrPeaksAfterKalman
+% %   2) saves HR estimate (bpm) in obj.HrEstAfterKalman (beat-rate sequence)
+% % If b_both==1: also applies a KF directly to obj.HrEst (if exists) and
+% % uses that filtered HR instead (or in addition) for HrEstAfterKalman.
+% %
+% % Notes:
+% % - This does NOT filter the waveform; it filters the HR state.
+% % - Peak reconstruction uses: peaks_rec = t0 + [0; cumsum(60./HRhat)]
+% %   where t0 is the first peak time.
+% 
+% if nargin < 2 || isempty(b_both)
+%     b_both = 0;
+% end
+% 
+% % ---- guards ----
+% if isempty(obj.HrPeaks)
+%     obj.HrPeaksAfterKalman = [];
+%     obj.HrEstAfterKalman   = [];
+%     return;
+% end
+% 
+% fs = obj.fs_new;
+% 
+% % Ensure column, sorted, unique
+% pk = unique(obj.HrPeaks(:), 'stable'); %stable keeps the order 
+% pk = sort(pk);
+% 
+% if numel(pk) < 2
+%     obj.HrPeaksAfterKalman = pk;
+%     obj.HrEstAfterKalman   = [];
+%     return;
+% end
+% 
+% t = pk ;                 % seconds
+% ibi = diff(t);               % seconds
+% hr_meas = 60 ./ ibi;         % bpm (length N-1)
+% 
+% % ---- basic sanity (optional but recommended) ----
+% HRmin = 40; HRmax = 200;
+% good = isfinite(hr_meas) & hr_meas >= HRmin & hr_meas <= HRmax;
+% % keep alignment: we'll KF-update only where good, but still predict through all beats
+% 
+% % ---- Kalman init (state: [HR; HRdot]) ----
+% % Initial HR from median of first few valid beats
+% hr0 = hr_meas(good);
+% if isempty(hr0)
+%     HR0 = 75;
+%     disp("ERROR");
+% else
+%     HR0 = median(hr0(1:min(5,numel(hr0))));
+%     HR0 = median(hr0);
+% end
+% HR0 = min(max(HR0, HRmin), HRmax);
+% HR0_d=0;
+% x = [HR0; HR0_d];                % [HR; HRdot], bpm and bpm/s
+% P = diag([25, 9]);
+% 
+% % Tunables (these are decent starting points)
+% Q = diag([0.8^2, 0.6^2]);     % process noise
+% R0 = 4.0^2;                  % measurement noise (bpm^2)
+% gateSig = 3.0;               % innovation gate in sigma
+% 
+% H = [1 0];
+% 
+% hr_hat = nan(size(hr_meas));
+% acc    = false(size(hr_meas));
+% 
+% for k = 1:numel(hr_meas)
+%     dt = ibi(k);
+%     if ~isfinite(dt) || dt <= 0
+%         dt = 0.8; % fallback
+%     end
+% 
+%     % Predict
+%     F = [1 dt; 0 1];
+%     x = F*x;
+%     P = F*P*F.' + Q;
+% 
+%     if good(k)
+%         z = hr_meas(k);
+% 
+%         % Innovation + gate
+%         y = z - H*x;
+%         S = H*P*H.' + R0;
+% 
+%         if (y*y) <= (gateSig^2)*S
+%             K = (P*H.') / S;
+%             x = x + K*y;
+%             P = (eye(2) - K*H) * P;
+%             acc(k) = true;
+%         end
+%     end
+% 
+%     % Clamp HR estimate
+%     x(1) = min(max(x(1), HRmin), HRmax);
+%     hr_hat(k) = x(1);
+% end
+% 
+% % ---- Optionally KF-filter an existing HR time-series (b_both == 1) ----
+% % If obj.HrEst exists and matches length, filter it too and prefer it.
+% if b_both == 1 && isprop(obj,'HrEst') && ~isempty(obj.HrEst)
+%     hr_in = obj.HrEst(:);
+% 
+%     % If hr_in length matches hr_hat length, we can filter it beat-wise.
+%     % Otherwise we just ignore it here (you can adapt later by resampling).
+%     if numel(hr_in) == numel(hr_hat)
+%         % Simple 1D KF on HR only (random walk)
+%         x1 = hr_in(1);
+%         P1 = 25;
+%         Q1 = 0.8^2;
+%         R1 = 4.0^2;
+% 
+%         hr1 = nan(size(hr_in));
+%         for k = 1:numel(hr_in)
+%             % predict
+%             x1 = x1;
+%             P1 = P1 + Q1;
+% 
+%             z = hr_in(k);
+%             if isfinite(z) && z >= HRmin && z <= HRmax
+%                 % update
+%                 K1 = P1 / (P1 + R1);
+%                 x1 = x1 + K1*(z - x1);
+%                 P1 = (1 - K1)*P1;
+%             end
+%             x1 = min(max(x1, HRmin), HRmax);
+%             hr1(k) = x1;
+%         end
+% 
+%         % Prefer filtered HR estimate (replace hr_hat)
+%         hr_hat = hr1;
+%     end
+% end
+% 
+% % ---- Save HR estimate after Kalman ----
+% % hr_hat is beat-to-beat (between peaks). Save as-is:
+% obj.HrEstAfterKalman = hr_hat;
+% 
+% % ---- Reconstruct peaks from filtered HR (requires first peak time) ----
+% t0 = t(1);                          % seconds, timestamp of first beat
+% ibi_hat = 60 ./ hr_hat;             % seconds per beat
+% 
+% % Handle any NaNs (no update segments): fill with nearest valid
+% if any(~isfinite(ibi_hat))
+%     ibi_hat = fillmissing(ibi_hat, 'nearest');
+% end
+% 
+% t_rec = t0 + [0; cumsum(ibi_hat)];
+% pk_rec = round(t_rec * fs);
+% 
+% % Enforce monotonic increasing and minimum distance of 1 sample
+% pk_rec = max(pk_rec, 1);
+% pk_rec = unique(pk_rec, 'stable');
+% pk_rec = sort(pk_rec);
+% 
+% obj.HrPeaksAfterKalman = pk_rec;
+% 
+% end
 %
-% Notes:
-% - This does NOT filter the waveform; it filters the HR state.
-% - Peak reconstruction uses: peaks_rec = t0 + [0; cumsum(60./HRhat)]
-%   where t0 is the first peak time.
 
-if nargin < 2 || isempty(b_both)
-    b_both = 0;
-end
+% second implement
+function KalmanFilterBeats(obj)
+    % Improved Kalman Filter for Heart Rate
+    % 1. Robust against NaN/Empty inputs.
+    % 2. Uses Phase-Locking to prevent drift.
+    % 3. Filters Heart Rate (BPM) while preserving beat alignment.
 
-% ---- guards ----
-if isempty(obj.HrPeaks)
-    obj.HrPeaksAfterKalman = [];
-    obj.HrEstAfterKalman   = [];
-    return;
-end
-
-fs = obj.fs_new;
-
-% Ensure column, sorted, unique
-pk = unique(obj.HrPeaks(:), 'stable');
-pk = sort(pk);
-
-if numel(pk) < 2
-    obj.HrPeaksAfterKalman = pk;
-    obj.HrEstAfterKalman   = [];
-    return;
-end
-
-t = pk ;                 % seconds
-ibi = diff(t);               % seconds
-hr_meas = 60 ./ ibi;         % bpm (length N-1)
-
-% ---- basic sanity (optional but recommended) ----
-HRmin = 40; HRmax = 200;
-good = isfinite(hr_meas) & hr_meas >= HRmin & hr_meas <= HRmax;
-% keep alignment: we'll KF-update only where good, but still predict through all beats
-
-% ---- Kalman init (state: [HR; HRdot]) ----
-% Initial HR from median of first few valid beats
-hr0 = hr_meas(good);
-if isempty(hr0)
-    HR0 = 75;
-else
-    HR0 = median(hr0(1:min(5,numel(hr0))));
-end
-HR0 = min(max(HR0, HRmin), HRmax);
-
-x = [HR0; 0];                % [HR; HRdot], bpm and bpm/s
-P = diag([25, 9]);
-
-% Tunables (these are decent starting points)
-Q = diag([0.8^2, 0.6^2]);     % process noise
-R0 = 4.0^2;                  % measurement noise (bpm^2)
-gateSig = 3.0;               % innovation gate in sigma
-
-H = [1 0];
-
-hr_hat = nan(size(hr_meas));
-acc    = false(size(hr_meas));
-
-for k = 1:numel(hr_meas)
-    dt = ibi(k);
-    if ~isfinite(dt) || dt <= 0
-        dt = 0.8; % fallback
+    % ---- 1. Guards: Check for valid input ----
+    % We need at least 2 peaks to calculate an interval
+    if isempty(obj.HrPeaks) || length(obj.HrPeaks) < 2
+        obj.HrPeaksAfterKalman = obj.HrPeaks;
+        obj.HrEstAfterKalman = []; 
+        warning('Kalman:InputSparse', 'Input HrPeaks too sparse (<2). Returning original.');
+        return;
     end
 
-    % Predict
-    F = [1 dt; 0 1];
-    x = F*x;
-    P = F*P*F.' + Q;
+    fs = obj.fs_new;
+    if isempty(fs) || fs == 0, fs = 100; end % Safety fallback
 
-    if good(k)
+    % Prepare Input Data
+    raw_pk_times = unique(sort(obj.HrPeaks(:)), 'stable');
+    ibi_meas = diff(raw_pk_times);
+    hr_meas = 60 ./ ibi_meas; 
+
+    % ---- 2. Kalman Initialization (State: [HR]) ----
+    % We use a 1-state Random Walk model. Velocity state (HRdot) 
+    % often overshoots on radar data due to sudden noise.
+
+    % Find a valid starting HR (median of first few valid beats)
+    valid_mask = (hr_meas > 40 & hr_meas < 200 & isfinite(hr_meas));
+    valid_data = hr_meas(valid_mask);
+
+    if isempty(valid_data)
+        x = 75; % Fallback if signal is 100% garbage
+    else
+        x = median(valid_data(1:min(5, end)));
+    end
+
+    P = 10;           % Initial uncertainty
+    Q = 0.5;          % Process noise (Standard deviation of beat-to-beat change)
+    R_base = 5.0;     % Measurement noise (Trust in the radar peak location)
+
+    hr_hat = nan(size(hr_meas));
+
+    % ---- 3. Filtering Loop ----
+    for k = 1:length(hr_meas)
         z = hr_meas(k);
 
-        % Innovation + gate
-        y = z - H*x;
-        S = H*P*H.' + R0;
+        % Predict
+        x_pred = x;
+        P_pred = P + Q;
 
-        if (y*y) <= (gateSig^2)*S
-            K = (P*H.') / S;
-            x = x + K*y;
-            P = (eye(2) - K*H) * P;
-            acc(k) = true;
+        % Validate Measurement
+        % 1. Is it physically possible? (40-200 BPM)
+        % 2. Is it within the statistical gate? (Mahalanobis distance)
+        is_physio = (z >= 40 && z <= 200 && isfinite(z));
+
+        innovation = z - x_pred;
+        S = P_pred + R_base;
+
+        % Gate: If error > 3 standard deviations, it's an outlier (or missed beat)
+        if (innovation^2) > (9 * S) 
+            gate_passed = false;
+        else
+            gate_passed = true;
         end
-    end
-
-    % Clamp HR estimate
-    x(1) = min(max(x(1), HRmin), HRmax);
-    hr_hat(k) = x(1);
-end
-
-% ---- Optionally KF-filter an existing HR time-series (b_both == 1) ----
-% If obj.HrEst exists and matches length, filter it too and prefer it.
-if b_both == 1 && isprop(obj,'HrEst') && ~isempty(obj.HrEst)
-    hr_in = obj.HrEst(:);
-
-    % If hr_in length matches hr_hat length, we can filter it beat-wise.
-    % Otherwise we just ignore it here (you can adapt later by resampling).
-    if numel(hr_in) == numel(hr_hat)
-        % Simple 1D KF on HR only (random walk)
-        x1 = hr_in(1);
-        P1 = 25;
-        Q1 = 0.8^2;
-        R1 = 4.0^2;
-
-        hr1 = nan(size(hr_in));
-        for k = 1:numel(hr_in)
-            % predict
-            x1 = x1;
-            P1 = P1 + Q1;
-
-            z = hr_in(k);
-            if isfinite(z) && z >= HRmin && z <= HRmax
-                % update
-                K1 = P1 / (P1 + R1);
-                x1 = x1 + K1*(z - x1);
-                P1 = (1 - K1)*P1;
-            end
-            x1 = min(max(x1, HRmin), HRmax);
-            hr1(k) = x1;
+        % Update Step
+        if is_physio && gate_passed
+            K = P_pred / S;
+            x = x_pred + K * innovation;
+            P = (1 - K) * P_pred;
+        else
+            % Reject measurement, trust model history
+            x = x_pred; 
+            P = P_pred; 
         end
 
-        % Prefer filtered HR estimate (replace hr_hat)
-        hr_hat = hr1;
+        hr_hat(k) = x;
     end
+
+    obj.HrEstAfterKalman = hr_hat;
+
+    % ---- 4. Phase-Locked Reconstruction ----
+    % Prevents the "drifting away" issue of simple cumsum.
+    % We predict where the next beat *should* be. If a raw peak is close,
+    % we snap to it. If not, we use the prediction (smoothing).
+
+    rec_peaks = zeros(length(hr_hat)+1, 1);
+    rec_peaks(1) = raw_pk_times(1); % Anchor to first peak
+    curr_time = raw_pk_times(1);
+
+    for k = 1:length(hr_hat)
+        % Predict IBI based on filtered HR
+        pred_ibi = 60 / hr_hat(k);
+        next_pred = curr_time + pred_ibi;
+
+        % Check if a raw peak exists near this prediction
+        % Window: +/- 20% of the beat interval
+        window = 0.2 * pred_ibi;
+        [min_err, idx] = min(abs(raw_pk_times - next_pred));
+
+        if min_err < window
+            % Found a matching raw peak -> Snap to it (Corrects Phase)
+            next_time = raw_pk_times(idx);
+        else
+            % No match -> Use Kalman prediction (Smooths over noise/misses)
+            next_time = next_pred;
+        end
+        rec_peaks(k+1) = next_time;
+        curr_time = next_time;
+    end
+
+    obj.HrPeaksAfterKalman = rec_peaks;
 end
 
-% ---- Save HR estimate after Kalman ----
-% hr_hat is beat-to-beat (between peaks). Save as-is:
-obj.HrEstAfterKalman = hr_hat;
-
-% ---- Reconstruct peaks from filtered HR (requires first peak time) ----
-t0 = t(1);                          % seconds, timestamp of first beat
-ibi_hat = 60 ./ hr_hat;             % seconds per beat
-
-% Handle any NaNs (no update segments): fill with nearest valid
-if any(~isfinite(ibi_hat))
-    ibi_hat = fillmissing(ibi_hat, 'nearest');
-end
-
-t_rec = t0 + [0; cumsum(ibi_hat)];
-pk_rec = round(t_rec * fs);
-
-% Enforce monotonic increasing and minimum distance of 1 sample
-pk_rec = max(pk_rec, 1);
-pk_rec = unique(pk_rec, 'stable');
-pk_rec = sort(pk_rec);
-
-obj.HrPeaksAfterKalman = pk_rec;
-
-end
+%MORE ADAPTIVE KALMAN FILTER:
+% function KalmanFilterBeats(obj)
+%     % KalmanFilterBeats (Adaptive)
+%     % 1. Adaptive R: Increases when local variance of measurement is high.
+%     % 2. Adaptive Q: Increases when prediction error is consistently high (Trend detection).
+%     % 3. Robust Initialization & Phase Locking.
+% 
+%     % ---- 1. Guards & Data Prep ----
+%     if isempty(obj.HrPeaks) || length(obj.HrPeaks) < 3
+%         obj.HrPeaksAfterKalman = obj.HrPeaks;
+%         obj.HrEstAfterKalman = [];
+%         return;
+%     end
+% 
+%     fs = obj.fs_new;
+%     if isempty(fs) || fs == 0, fs = 100; end
+% 
+%     % Get raw data
+%     raw_pk_times = unique(sort(obj.HrPeaks(:)), 'stable');
+% 
+%     % Calculate instantaneous HR (Measurement z)
+%     ibi_meas = diff(raw_pk_times);
+%     hr_meas  = 60 ./ ibi_meas; 
+% 
+%     % ---- 2. Initialization ----
+%     % State x = [HR]
+%     % Find clean start
+%     valid_mask = (hr_meas > 40 & hr_meas < 200 & isfinite(hr_meas));
+%     if ~any(valid_mask)
+%         x = 75; 
+%     else
+%         x = median(hr_meas(valid_mask)); % Robust start
+%     end
+% 
+%     P = 10;                % Initial covariance
+% 
+%     % Base parameters (tuning knobs)
+%     Q_base = 0.5;          % Minimum process noise (steady state)
+%     R_base = 5.0;          % Minimum measurement noise
+% 
+%     % For adaptivity: Window size for variance calculation
+%     win_size = 5; 
+%     recent_innovations = zeros(win_size, 1); 
+% 
+%     hr_hat = nan(size(hr_meas));
+% 
+%     % ---- 3. Adaptive Filtering Loop ----
+%     for k = 1:length(hr_meas)
+%         z = hr_meas(k);
+% 
+%         % --- A. Adaptivity Logic ---
+% 
+%         % 1. Adaptive R (Measurement Noise)
+%         % Look at variance of recent 5 beats. 
+%         % If variance is high -> signal is noisy -> Increase R (Trust Model).
+%         start_idx = max(1, k - win_size);
+%         local_segment = hr_meas(start_idx:k);
+% 
+%         % Calculate local variance (handle single point case)
+%         if length(local_segment) > 1
+%             local_var = var(local_segment);
+%         else
+%             local_var = 0;
+%         end
+% 
+%         % Scale R: Base + factor * local_variance
+%         R_adaptive = R_base + (0.5 * local_var); 
+%         % Cap R to prevent filter from freezing completely
+%         R_adaptive = min(R_adaptive, 100); 
+% 
+%         % 2. Adaptive Q (Process Noise)
+%         % Calculate Innovation (Error between measurement and prediction)
+%         innovation = z - x;
+% 
+%         % Store innovation history
+%         recent_innovations = [recent_innovations(2:end); innovation];
+% 
+%         % If innovations are consistently large (mean error is high), 
+%         % the signal is moving away (trend). Increase Q to track faster.
+%         avg_innovation = mean(abs(recent_innovations));
+% 
+%         % Scale Q: Base + factor * average_error
+%         Q_adaptive = Q_base + (0.2 * avg_innovation^2);
+%         % Cap Q to prevent instability
+%         Q_adaptive = min(Q_adaptive, 50);
+% 
+%         % --- B. Standard Kalman Steps ---
+% 
+%         % Predict
+%         x_pred = x;
+%         P_pred = P + Q_adaptive; % Use Dynamic Q
+% 
+%         % Gate & Update
+%         is_physio = (z >= 40 && z <= 200 && isfinite(z));
+% 
+%         S = P_pred + R_adaptive; % Use Dynamic R
+% 
+%         % Gate: Mahalanobis distance
+%         % If Q is high (tracking mode), we open the gate wider.
+%         gate_threshold = 9 + (Q_adaptive); 
+% 
+%         if (innovation^2) < (gate_threshold * S) && is_physio
+%              % Valid update
+%              K = P_pred / S;
+%              x = x_pred + K * innovation;
+%              P = (1 - K) * P_pred;
+%         else
+%              % Outlier rejection (Keep prediction)
+%              x = x_pred;
+%              P = P_pred;
+%         end
+% 
+%         hr_hat(k) = x;
+%     end
+% 
+%     obj.HrEstAfterKalman = hr_hat;
+% 
+%     % ---- 4. Phase-Locked Reconstruction (Same as before) ----
+%     rec_peaks = zeros(length(hr_hat)+1, 1);
+%     rec_peaks(1) = raw_pk_times(1);
+%     curr_time = raw_pk_times(1);
+% 
+%     for k = 1:length(hr_hat)
+%         pred_ibi = 60 / hr_hat(k);
+%         next_pred = curr_time + pred_ibi;
+% 
+%         % Window: +/- 20% of the beat interval
+%         window = 0.2 * pred_ibi;
+%         [min_err, idx] = min(abs(raw_pk_times - next_pred));
+% 
+%         if min_err < window
+%             next_time = raw_pk_times(idx); % Snap to real peak
+%         else
+%             next_time = next_pred;         % Use filtered prediction
+%         end
+% 
+%         rec_peaks(k+1) = next_time;
+%         curr_time = next_time;
+%     end
+%     obj.HrPeaksAfterKalman = rec_peaks;
+% end
 
 
 %% PLOTS        
@@ -536,7 +790,7 @@ end
 
             if ~isempty(obj.HrGtEst) % && ~isempty(obj.HrEstAfterKalman
                 if exist('BlandAltman', 'file')
-                   BlandAltman(HrToCompare,obj.HrGtEst, 2, 0);
+                   BlandAltman(HrToCompare,obj.HrGtEstAfterMedian, 2, 0);
                 % else
                 %     plot(vec_ecg, vec_radar, 'o', 'DisplayName', 'Data Points'); 
                 %     xlabel('ECG'); ylabel('Radar');
@@ -656,7 +910,7 @@ end
             subplot(4,1,4);
             if ~isempty(obj.HrGtEst) && ~isempty(obj.HrEst)
                 if exist('BlandAltman', 'file')
-                   BlandAltman(HrToCompare,obj.HrGtEst, 2, 0);
+                   BlandAltman(HrToCompare,obj.HrGtEstAfterMedian, 2, 0);
                 % else
                 %     plot(vec_ecg, vec_radar, 'o', 'DisplayName', 'Data Points'); 
                 %     xlabel('ECG'); ylabel('Radar');
@@ -668,8 +922,6 @@ end
             linkaxes(ax_link, 'x');            
         end
         function h = plot_examples(obj)
-
-
           % TODO - REVAMP DRAWINGS AND TITLES TO FIT THE WANTED SIGNAL. 
          h = gobjects(0); % Initialize graphics array
 
@@ -679,7 +931,7 @@ end
          ax_link = [];
 
          % Subplot 1: Radar Signal with Initial vs Final Peaks
-         ax_link(1) = subplot(3,1,1);
+         ax_link(1) = subplot(2,1,1);
          hold on;
          title(sprintf('Radar Signal: Initial vs Final Peaks - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
          plot(obj.vTimeNew, obj.HrSignal, 'b', 'DisplayName', 'Radar Signal');
@@ -688,14 +940,14 @@ end
             amps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks);
             plot(obj.HrPeaks, amps, 'g*', 'MarkerSize', 6, 'DisplayName', 'Initial Peaks');
          end
-         % if ~isempty(obj.HrPeaksFinal)
-         %    amps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksFinal);
-         %    plot(obj.HrPeaksFinal, amps, 'r*', 'MarkerSize', 8, 'DisplayName', 'Final Peaks');
-         % end
+         if ~isempty(obj.HrPeaksAfterKalman)
+            amps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaksAfterKalman);
+            plot(obj.HrPeaksAfterKalman, amps, 'ro', 'MarkerSize', 8, 'DisplayName', 'After kalman Peaks');
+         end
          legend('show', 'Location', 'best'); grid on; hold off;
 
          % Subplot 2: ECG Signal with ECG Peaks vs Radar Peaks (Matched)
-         ax_link(2) = subplot(3,1,2);
+         ax_link(2) = subplot(2,1,2);
          hold on;
          title('ECG Signal: GT Peaks vs Correlated Radar Peaks');
          plot(obj.vTimeOriginal, obj.ecg_gt, 'k', 'DisplayName', 'ECG Signal');
@@ -705,17 +957,16 @@ end
              plot(obj.ecgPeaks, amps, 'bo', 'MarkerSize', 6, 'DisplayName', 'ECG Peaks (GT)');
          end       
          % Subplot 3: Radar Signal with Initial Peaks vs GT Peaks (Matched)
-         ax_link(3) = subplot(3,1,3);
-         hold on;
-         title('Radar Signal: Radar Peaks vs Correlated GT Peaks');
-         plot(obj.vTimeNew, obj.HrSignal, 'b', 'DisplayName', 'Radar Signal');
-         
-         if ~isempty(obj.HrPeaks)
-            amps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks);
-            plot(obj.HrPeaks, amps, 'g*', 'MarkerSize', 6, 'DisplayName', 'Radar Peaks');
-         end
+         % ax_link(3) = subplot(3,1,3);
+         % hold on;
+         % title('Radar Signal: Radar Peaks vs Correlated GT Peaks');
+         % plot(obj.vTimeNew, obj.HrSignal, 'b', 'DisplayName', 'Radar Signal');
+         % 
+         % if ~isempty(obj.HrPeaks)
+         %    amps = interp1(obj.vTimeNew, obj.HrSignal, obj.HrPeaks);
+         %    plot(obj.HrPeaks, amps, 'g*', 'MarkerSize', 6, 'DisplayName', 'Radar Peaks');
+         % end
          legend('show', 'Location', 'best'); grid on; hold off;
-         
          linkaxes(ax_link, 'x');
 
          % --- FIGURE 2: Heart Rate Comparisons ---
@@ -746,41 +997,41 @@ end
          ax_hr = [];
 
          % Subplot 1
-         ax_hr(1) = subplot(4,1,1); hold on; grid on;
+         ax_hr(1) = subplot(2,1,1); hold on; grid on;
          title(sprintf('HR Comparison: HR after filtering vs GT vs GT after median - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
          plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
          plot(obj.HrEst, 'b', 'DisplayName', 'Radar Est');
-         plot(obj.HrGtEstAfterMedian, 'g','DisplayName', 'GT After Median');
+         plot(obj.HrGtEstAfterMedian, 'g--','DisplayName', 'GT After Median');
          legend('show', 'Location', 'best');
 
          % Subplot 2
-         ax_hr(2) = subplot(4,1,2); hold on; grid on;
+         ax_hr(2) = subplot(2,1,2); hold on; grid on;
          title('HR after filtering and preproccessing vs GT vs GT after median');
          plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
-         % if ~isempty(obj.HrEstSpikes)
-         %    plot(obj.HrEstSpikes, 'b','DisplayName', 'Radar Est after preproc');
-         % end
-         plot(obj.HrGtEstAfterMedian, 'g',  'DisplayName', 'GT After Median');
+          if ~isempty(obj.HrEstAfterKalman)
+             plot(obj.HrEstAfterKalman, 'b','DisplayName', 'Radar Est after kalman');
+          end
+         plot(obj.HrGtEstAfterMedian, 'g--',  'DisplayName', 'GT After Median');
          legend('show', 'Location', 'best');
 
          % Subplot 3
-         ax_hr(3) = subplot(4,1,3); hold on; grid on;
-         title('HR after median vs GT vs GT after median');
-         plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
-         if ~isempty(obj.HrEstAfterMedian)
-             plot(obj.HrEstAfterMedian, 'b','DisplayName', 'Radar Est After Median');
-         end
-         plot(obj.HrGtEstAfterMedian, 'g','DisplayName', 'GT After Median');
-         legend('show', 'Location', 'best');
-
-         % Subplot 4
-         ax_hr(4) = subplot(4,1,4); hold on; grid on;
-         title(' HR (Correlated Fix) vs GT vs GT after median');
-         plot(obj.HrGtEst, 'r', 'LineWidth', 1, 'DisplayName', 'GT Est');
-         plot(obj.HrGtEstAfterMedian, 'g', 'LineWidth', 1, 'DisplayName', 'GT After Median');
-         plot(Hr_corr_fix, 'b.-', 'LineWidth', 1, 'DisplayName', 'Hr Corr Fix');
-         legend('show', 'Location', 'best');
-         xlabel('Beat Index'); ylabel('BPM');
+         % ax_hr(3) = subplot(4,1,3); hold on; grid on;
+         % title('HR after median vs GT vs GT after median');
+         % plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
+         % if ~isempty(obj.HrEstAfterMedian)
+         %     plot(obj.HrEstAfterMedian, 'b','DisplayName', 'Radar Est After Median');
+         % end
+         % plot(obj.HrGtEstAfterMedian, 'g','DisplayName', 'GT After Median');
+         % legend('show', 'Location', 'best');
+         % 
+         % % Subplot 4
+         % ax_hr(4) = subplot(4,1,4); hold on; grid on;
+         % title(' HR (Correlated Fix) vs GT vs GT after median');
+         % plot(obj.HrGtEst, 'r', 'LineWidth', 1, 'DisplayName', 'GT Est');
+         % plot(obj.HrGtEstAfterMedian, 'g', 'LineWidth', 1, 'DisplayName', 'GT After Median');
+         % plot(Hr_corr_fix, 'b.-', 'LineWidth', 1, 'DisplayName', 'Hr Corr Fix');
+         % legend('show', 'Location', 'best');
+         % xlabel('Beat Index'); ylabel('BPM');
 
          linkaxes(ax_hr, 'x');
      end
@@ -887,8 +1138,7 @@ end
                 catch ME
                     fprintf(2, 'Warning: Could not save %s. Error: %s\n', baseFileName, ME.message);
                 end
-                close all;
-            end
+             end
         end
 
         %% Plot All and Optionally Save
@@ -910,7 +1160,6 @@ end
                 options.plot_CorrAxis (1,1) logical = true
                 options.plot_examples (1,1) logical = true 
             end
-
             figHandles = gobjects(0); % Initialize empty graphics array
 
             % 1. HR Peaks
@@ -968,9 +1217,7 @@ end
             % Save if requested
             if bsave
                 obj.saveFigures(figHandles, saveDir);
-                
-                % Optional: Close figures after saving to prevent memory buildup
-                % close(figHandles); 
+                close all; 
             end
         end
     end

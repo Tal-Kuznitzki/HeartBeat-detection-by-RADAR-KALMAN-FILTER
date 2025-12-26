@@ -36,7 +36,7 @@ b_plot_ALL = true;
 
 
 IDrange = 1 ; %11:12;   
-scenarios ={'Resting','Valsalva'};% {'Resting','Valsalva','Apnea','Tiltdown','Tiltup'}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
+scenarios ={'Resting'};% {'Resting','Valsalva','Apnea','Tiltdown','Tiltup'}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
@@ -50,10 +50,10 @@ saveBaseDir = 'SavedAnalysisFigures';
 statsDirName = 'Statistics' ;
 lambda = 0.0125 ;
 %initiate full table so the indexes will stay the same
-statisticsAPMed = statisticsClass(max(IDrange), 5); % after median, without corr to GT
-statisticsPMed = statisticsClass(max(IDrange), 5); % after median and corr to GT
-statisticsAPKal = statisticsClass(max(IDrange), 5); % after Kalman, without corr to GT
-statisticsPKal = statisticsClass(max(IDrange), 5); % after Kalman and corr to GT
+statisticsAPMed = statisticsClass(max(IDrange), 5,statsDirName); % after median, without corr to GT
+statisticsPMed = statisticsClass(max(IDrange), 5,statsDirName); % after median and corr to GT
+statisticsAPKal = statisticsClass(max(IDrange), 5,statsDirName); % after Kalman, without corr to GT
+statisticsPKal = statisticsClass(max(IDrange), 5,statsDirName); % after Kalman and corr to GT
 
 if b_CLEAR_OLD && exist(saveBaseDir,'dir')
     rmdir(saveBaseDir,'s');
@@ -148,8 +148,8 @@ for indx = 1:length(IDrange)
 
         dataFull{indx,sz}.CalcError();
         dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
-           'HrEstAfterMedian' ,...
-            dataFull{indx,sz}.HrEstAfterMedian,...
+           'HrEstAfterKalman' ,...
+            dataFull{indx,sz}.HrEstAfterKalman,...
             'plot_RrSignals',false, ...
             'plot_RrRates',false);
             

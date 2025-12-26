@@ -21,14 +21,15 @@ classdef statisticsClass < handle
     properties (Access = private)
         nPatients
         nScenarios
+        dirName
     end
 
     methods
-        function obj = statisticsClass(nPatients, nScenarios)
+        function obj = statisticsClass(nPatients, nScenarios,dirName)
             % Constructor: prealloc tables and scenario signal storage
             obj.nPatients  = nPatients;
             obj.nScenarios = nScenarios;
-
+            obj.dirName = dirName;
             obj.HrCovTable = nan(nPatients, nScenarios);
             obj.HrMseTable = nan(nPatients, nScenarios);
             obj.HrMaeTable = nan(nPatients, nScenarios);
@@ -110,7 +111,7 @@ classdef statisticsClass < handle
                 filename = sprintf('RadarStatistics_%s.xlsx', ts);
             end
             
-            outDir = fullfile(pwd, 'Statistics');
+            outDir = fullfile(pwd, obj.dirName);
             if ~exist(outDir, 'dir')
                 mkdir(outDir);
             end
