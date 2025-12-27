@@ -35,13 +35,15 @@ b_plot_ALL = true;
 
 
 
-IDrange = 1 ; %11:12;   
+IDrange = 1:10 ; %11:12;   
 scenarios ={'Resting'};% {'Resting','Valsalva','Apnea','Tiltdown','Tiltup'}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
 resampleFS=100; 
- 
+qGridSize = length( 0.5:0.25:15);
+mMseGrid = inf(qGridSize,qGridSize,length(IDrange));
+
 scrsz = get(groot,'ScreenSize');
 addpath(genpath('utils'))
 windowSeconds=15; 
@@ -147,17 +149,36 @@ for indx = 1:length(IDrange)
         
 
         dataFull{indx,sz}.CalcError();
-        dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
-           'HrEstAfterKalman' ,...
-            dataFull{indx,sz}.HrEstAfterKalman,...
-            'plot_RrSignals',false, ...
-            'plot_RrRates',false);
-            
+        % % % % dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
+        % % % %    'HrEstAfterKalman' ,...
+        % % % %     dataFull{indx,sz}.HrEstAfterKalman,...
+        % % % %     'plot_RrSignals',false, ...
+        % % % %     'plot_RrRates',false);
+        % % % % 
         %TODO: CHANGE AFTER WE IMPLEMENT KALMAN ! 
        statisticsAPMed.updateTable(dataFull{indx,sz}.HrEst,dataFull{indx,sz}.HrGtEst,indx,sz); 
+       % for q= 0.5:0.25:15
+       %   for p = 0.5:0.25:15
+       %      dataFull{indx,sz}.KalmanFilterBeats(q,p);
+       %      kalman=dataFull{indx,sz}.HrEstAfterKalman(:);
+       %      gt= dataFull{indx,sz}.HrGtEst(:);
+       %      maxlen= min(length(kalman),length(gt));
+       %      mMseGrid(q*4-1, p*4-1,indx) = rmse(kalman(1:maxlen),gt(1:maxlen));
+       % 
+       %   end
+       % end
     end
 end
+   
+% %% CAF on different values
+% [N,M,I] = size(mMseGrid);
+% A2 = reshape(mMseGrid, N*M, I);   % each column = one (N,M) page
+% [minVal, linIdx] = min(A2, [], 1);
+% [rowIdx, colIdx] = ind2sub([N, M], linIdx);
 
+
+
+%%
 
 
 %% 8. Save Results

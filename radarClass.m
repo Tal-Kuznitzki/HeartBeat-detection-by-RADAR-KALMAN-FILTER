@@ -441,7 +441,7 @@ classdef radarClass < handle
 
 
 %second implement
-function KalmanFilterBeats(obj)
+function KalmanFilterBeats(obj,Q,R_base)
     % Improved Kalman Filter for Heart Rate
     % 1. Robust against NaN/Empty inputs.
     % 2. Uses Phase-Locking to prevent drift.
@@ -477,11 +477,14 @@ function KalmanFilterBeats(obj)
     else
         x = median(valid_data(1:min(5, end)));
     end
-
-    P = 5;           % Initial uncertainty 10
-    Q = 5.0;          % Process noise (Standard deviation of beat-to-beat change) oldval 0.5
-    R_base = 7.5;     % Measurement noise (Trust in the radar peak location) oldval 5 
-        %best so far: 5 5 7.5
+    P = 5.0; 
+    if(nargin<3)
+                  % Initial uncertainty 10
+        Q = 5;          % Process noise (Standard deviation of beat-to-beat change) oldval 0.5
+        R_base = 14.5;     % Measurement noise (Trust in the radar peak location) oldval 5 
+        
+    end
+    %best so far: 5 5 7.5
     hr_hat = nan(size(hr_meas));
 
     % ---- 3. Filtering Loop ----
