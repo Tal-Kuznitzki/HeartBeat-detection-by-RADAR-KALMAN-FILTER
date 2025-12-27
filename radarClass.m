@@ -25,7 +25,11 @@ classdef radarClass < handle
         HrEstAfterMedian
         HrGtEstAfterMedian
         HrEstAfterKalman
-        
+
+        %correlating by timestamp
+        CorrKalmanHr %kalman at gt timeline
+        CorrGt %gt at gt timeline
+        %TODO- show results with these 2 vectors
         RrEst
         HrGtEst
         RrGtEst
@@ -441,6 +445,71 @@ classdef radarClass < handle
 
 
 %second implement
+function [missingBeats, excessBeats] = FindHrSpikes(obj,update) %%HrEstSpikes
+            % this function finds anomalies:
+            % excess peaks removed
+            % missing peaks added
+            % high jitter reduced
+            % input: power of jitter reduction (N/N+1)
+            % output: Nx2 of excess or missing beats, 
+            % first col for old index and 2nd col for new
+
+            hr = obj.HrEst;
+            N  = length(hr);
+            sizeDiff=0;
+            for i=2:N-2
+                % check if hr is out of bounds, if its too low, or 
+                % irregularly low, we are missing a beat, 
+                % double the value and concatenate a copy
+                % of it.
+                % 
+                % if its too high, or irregularly high,
+                % remove this sample. 
+                
+                missingBeats = [];
+                excessBeats = [];
+                effI= i+sizeDiff;
+                %high
+                if (hr(effI) > 180 || hr(effI)+hr(effI+1)>1.7*(hr(effI-1)+hr(effI+2)))&&...
+                    (hr(effI) > hr(effI-1) && hr(effI) > hr(effI+2))...
+                    && (hr(effI+1) > hr(effI-1) && hr(effI+1) > hr(effI+2))
+
+                    hr = [hr(1:effI-1);1/(1/(hr(effI)) + 1/(hr(effI+1)));...
+                                                hr(effI+2:N+sizeDiff)];
+                    sizeDiff=sizeDiff-1;
+                    excessBeats = [excessBeats ; i , effI-1]; 
+                    continue;
+                end
+                %find high var couple to skip
+                if(hr(effI)<0.65*hr(effI-1) && hr(effI+1)>1.35*hr(effI+2)) ||...
+                  (hr(effI)>1.35*hr(effI-1) && hr(effI+1)<0.65*hr(effI+2))
+                    
+                    % hr(effI)   = (norm*hr(effI-1) + hr(effI))  /(norm+1);
+                    % hr(effI+1) = (norm*hr(effI+2) + hr(effI+1))/(norm+1);
+
+                    continue;
+                end
+                %low
+                if ( hr(effI)<35 || hr(effI)<0.55*(hr(effI-1)+hr(effI+1))/2)
+                    % TODO, check if irregular high caused this
+                    hr(effI) = (hr(effI-1)+hr(effI+1))/2;
+                    hr = [hr(1:effI);hr(effI);hr(effI+1:N+sizeDiff)];
+                    sizeDiff=sizeDiff+1;
+                    missingBeats = [missingBeats; i , effI+1];
+                    continue;
+                end
+                
+            end
+            % obj.excessLocsFromHr = excessBeats;
+            % obj.missingLocsFromHr = missingBeats;
+            obj.HrEst = hr;
+            if (update)
+              ibi = 60 ./  hr ;
+              ibi = ibi(:);
+              obj.HrPeaks = obj.HrPeaks(1) + [0;cumsum(ibi)];
+                disp("we updated HrPeaksFinal");
+            end
+        end
 function KalmanFilterBeats(obj,Q,R_base)
     % Improved Kalman Filter for Heart Rate
     % 1. Robust against NaN/Empty inputs.
@@ -556,6 +625,33 @@ function KalmanFilterBeats(obj,Q,R_base)
     end
 
     obj.HrPeaksAfterKalman = rec_peaks;
+end
+
+function timeFitting(obj)
+    tEstPk = obj.HrPeaks(:);                 % seconds
+    hrEst  = obj.HrEstAfterKalman;             % bpm
+    tEstHr = (tEstPk(1:end-1) + tEstPk(2:end))/2;  % midpoint time per IBI
+
+    tGtPk = obj.ecgPeaks(:);                % seconds
+    hrGt  = obj.HrGtEstAfterMedian;
+    tGtHr = (tGtPk(1:end-1) + tGtPk(2:end))/2;
+
+  
+    % Overlapping window
+    t0 = max(tEstHr(1), tGtHr(1));
+    t1 = min(tEstHr(end), tGtHr(end));
+    
+    idxGt = (tGtHr >= t0) & (tGtHr <= t1);
+    
+    tGrid = tGtHr(idxGt);   % GT timeline
+    
+    hrEst_on_GT = interp1(tEstHr, hrEst, tGrid, 'pchip');
+    hrGt_on_GT  = hrGt(idxGt);
+    obj.CorrKalmanHr=hrEst_on_GT;
+    obj.CorrGt= hrGt_on_GT;
+    r = corr(hrEst_on_GT, hrGt_on_GT, 'Rows','complete');
+ 
+    
 end
 
 %MORE ADAPTIVE KALMAN FILTER:
@@ -794,7 +890,8 @@ end
 
             if ~isempty(obj.HrGtEst) % && ~isempty(obj.HrEstAfterKalman
                 if exist('BlandAltman', 'file')
-                   BlandAltman(HrToCompare,obj.HrGtEstAfterMedian, 2, 0);
+                    maxlen=min(length(HrToCompare),length(obj.HrGtEstAfterMedian));
+                   BlandAltman(HrToCompare(1:maxlen),obj.HrGtEstAfterMedian(1:maxlen), 2, 0);
                 % else
                 %     plot(vec_ecg, vec_radar, 'o', 'DisplayName', 'Data Points'); 
                 %     xlabel('ECG'); ylabel('Radar');
@@ -914,7 +1011,8 @@ end
             subplot(4,1,4);
             if ~isempty(obj.HrGtEst) && ~isempty(obj.HrEst)
                 if exist('BlandAltman', 'file')
-                   BlandAltman(HrToCompare,obj.HrGtEstAfterMedian, 2, 0);
+                   maxlen=min(length(HrToCompare),length(obj.HrGtEstAfterMedian));
+                   BlandAltman(HrToCompare(1:maxlen),obj.HrGtEstAfterMedian(1:maxlen), 2, 0);
                 % else
                 %     plot(vec_ecg, vec_radar, 'o', 'DisplayName', 'Data Points'); 
                 %     xlabel('ECG'); ylabel('Radar');
@@ -1012,10 +1110,10 @@ end
          ax_hr(2) = subplot(3,1,2); hold on; grid on;
          title('HR after Kalman vs GT after median');
         % plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
-          if ~isempty(obj.HrEstAfterKalman)
-             plot(obj.HrEstAfterKalman, 'b','DisplayName', 'Radar Est after kalman');
+          if ~isempty(obj.CorrKalmanHr)
+             plot(obj.CorrKalmanHr, 'b','DisplayName', 'Radar Est after kalman');
           end
-         plot(obj.HrGtEstAfterMedian, 'g--',  'DisplayName', 'GT After Median');
+         plot(obj.CorrGt, 'g--',  'DisplayName', 'GT After Median');
          legend('show', 'Location', 'best');
 
          %Subplot 3

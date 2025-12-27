@@ -35,7 +35,7 @@ b_plot_ALL = true;
 
 
 
-IDrange = 1:10 ; %11:12;   
+IDrange = 1 ; %11:12;   
 scenarios ={'Resting'};% {'Resting','Valsalva','Apnea','Tiltdown','Tiltup'}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
@@ -138,23 +138,27 @@ for indx = 1:length(IDrange)
         % based on peaks: Hr, Rr , ecg(gt) ,Rr_gt and peaksFinal ,
         % generates rates: HrEst, HrGtEst, RrEst, RrGtEst 
 
-        dataFull{indx,sz}.MedianHr();
+        
         % based on  HrEst, HrGtEst 
         % generates HrEstAfterMedian and HrGtEstAfterMedian
         % after median filter on each.
-
+        dataFull{indx,sz}.FindHrSpikes(1);
+        dataFull{indx,sz}.MedianHr();
 
         %dataFull{indx,sz}.KalmanHr();
         dataFull{indx,sz}.KalmanFilterBeats();
-        
+        dataFull{indx,sz}.timeFitting(); %THIS RETURNS CORRELATED HR
+        dataFull{indx,sz}.plot_examples();
+        %TODO: xcorr to find mechanical delay
+        % show all results with CorrGt and CorrKalmanHr
 
         dataFull{indx,sz}.CalcError();
-        % % % % dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
-        % % % %    'HrEstAfterKalman' ,...
-        % % % %     dataFull{indx,sz}.HrEstAfterKalman,...
-        % % % %     'plot_RrSignals',false, ...
-        % % % %     'plot_RrRates',false);
-        % % % % 
+        dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
+           'HrEstAfterKalman' ,...
+            dataFull{indx,sz}.HrEstAfterKalman,...
+            'plot_RrSignals',false, ...
+            'plot_RrRates',false);
+
         %TODO: CHANGE AFTER WE IMPLEMENT KALMAN ! 
        statisticsAPMed.updateTable(dataFull{indx,sz}.HrEst,dataFull{indx,sz}.HrGtEst,indx,sz); 
        % for q= 0.5:0.25:15
