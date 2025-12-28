@@ -26,12 +26,6 @@ end
 b_CLEAR_OLD = true;
 b_plot_ALL = true;
 
-%%% TODO: 
-% MAKE SURE EVERYTHING IS PRINTED AS NEEDED 
-% MAKE -1 DISTINCT IN THE BA
-% INTEGRATE CORRELATE_HR TO FLOW - IT SHOULD OUTPUT MEDIAN FILTER BASELINE 
-% CHECK FOR APNEA/VALSALVA TIMES IN THE PAPER
-% 
 
 
 
@@ -142,19 +136,21 @@ for indx = 1:length(IDrange)
         % based on  HrEst, HrGtEst 
         % generates HrEstAfterMedian and HrGtEstAfterMedian
         % after median filter on each.
-        dataFull{indx,sz}.FindHrSpikes(1);
+        %dataFull{indx,sz}.FindHrSpikes(1);
         dataFull{indx,sz}.MedianHr();
-
+%%
         %dataFull{indx,sz}.KalmanHr();
         dataFull{indx,sz}.KalmanFilterBeats();
         dataFull{indx,sz}.timeFitting(); %THIS RETURNS CORRELATED HR
+        [medDelay, kalDelay] = dataFull{indx,sz}.FindMechanicalDelay();
         dataFull{indx,sz}.plot_examples();
+        %%
         %TODO: xcorr to find mechanical delay
         % show all results with CorrGt and CorrKalmanHr
-
+        
         dataFull{indx,sz}.CalcError();
         dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
-           'HrEstAfterKalman' ,...
+           'HrEstAfterKalman',name ,...
             dataFull{indx,sz}.HrEstAfterKalman,...
             'plot_RrSignals',false, ...
             'plot_RrRates',false);

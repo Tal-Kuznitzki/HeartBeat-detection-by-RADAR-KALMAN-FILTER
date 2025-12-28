@@ -25,10 +25,14 @@ classdef radarClass < handle
         HrEstAfterMedian
         HrGtEstAfterMedian
         HrEstAfterKalman
-
+        mechanicalDelayKalman
+        mechanicalDelayMedian 
         %correlating by timestamp
         CorrKalmanHr %kalman at gt timeline
+        CorrMedianHr
         CorrGt %gt at gt timeline
+        kalmanCorrValue
+        medianCorrValue
         %TODO- show results with these 2 vectors
         RrEst
         HrGtEst
@@ -204,7 +208,7 @@ classdef radarClass < handle
           calculatedHr=obj.HrEst(:);
           minlen=min(length(gtHr),length(calculatedHr));
           gtHr=obj.HrGtEst(1:minlen);
-          calculatedHr=obj.HrEst(1:minlen);
+          calculatedHr=obj.HrEst(:);
           gt_after_median_filt=medfilt1(gtHr,size);
           calculatedHr_after_median_filt=medfilt1(calculatedHr,size);
 
@@ -225,7 +229,7 @@ classdef radarClass < handle
           
         hr_replaced_with_median_in_outliers=hr_replaced_with_median_in_outliers(:);
         gt_replaced_with_median_in_outliers=gt_replaced_with_median_in_outliers(:);
-        cor_after_median_Filter_on_both_signals = corr(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers)
+       % cor_after_median_Filter_on_both_signals = corr(hr_replaced_with_median_in_outliers,gt_replaced_with_median_in_outliers)
         obj.HrEstAfterMedian = hr_replaced_with_median_in_outliers;
         obj.HrGtEstAfterMedian = gt_replaced_with_median_in_outliers;
 
@@ -549,8 +553,8 @@ function KalmanFilterBeats(obj,Q,R_base)
     P = 5.0; 
     if(nargin<3)
                   % Initial uncertainty 10
-        Q = 5;          % Process noise (Standard deviation of beat-to-beat change) oldval 0.5
-        R_base = 14.5;     % Measurement noise (Trust in the radar peak location) oldval 5 
+        Q = 55;          % Process noise (Standard deviation of beat-to-beat change) oldval 0.5
+        R_base = 150.5;     % Measurement noise (Trust in the radar peak location) oldval 5 
         
     end
     %best so far: 5 5 7.5
@@ -635,7 +639,8 @@ function timeFitting(obj)
     tGtPk = obj.ecgPeaks(:);                % seconds
     hrGt  = obj.HrGtEstAfterMedian;
     tGtHr = (tGtPk(1:end-1) + tGtPk(2:end))/2;
-
+    
+    tMedian = obj.HrEstAfterMedian;
   
     % Overlapping window
     t0 = max(tEstHr(1), tGtHr(1));
@@ -646,12 +651,34 @@ function timeFitting(obj)
     tGrid = tGtHr(idxGt);   % GT timeline
     
     hrEst_on_GT = interp1(tEstHr, hrEst, tGrid, 'pchip');
+    hrMed_on_GT = interp1(tEstHr, tMedian, tGrid, 'pchip');
     hrGt_on_GT  = hrGt(idxGt);
     obj.CorrKalmanHr=hrEst_on_GT;
     obj.CorrGt= hrGt_on_GT;
-    r = corr(hrEst_on_GT, hrGt_on_GT, 'Rows','complete');
+    obj.CorrMedianHr = hrMed_on_GT;
+    obj.kalmanCorrValue = corr(hrEst_on_GT, hrGt_on_GT, 'Rows','complete');
+    obj.medianCorrValue = corr(hrMed_on_GT, hrGt_on_GT, 'Rows','complete');
  
     
+end
+
+function [delayMedian, delayKalman] = FindMechanicalDelay(obj) %xcorr to find mechanical delay
+    upsamp = 20;
+    FS= upsamp*obj.fs_new;
+    gt = resample(obj.CorrGt,upsamp,1);
+    kalman =  resample(obj.CorrKalmanHr,upsamp,1);
+    median =  resample(obj.CorrMedianHr,upsamp,1);
+    %now it has 20xresampleFS samples, divide maximum loc by 20fs
+    [KalmanCorr, lagsK] = xcorr(gt,kalman);
+    [MedianCorr,lagsM] = xcorr(gt,median);
+    [~, KalmanLoc] = max(KalmanCorr);
+    [~, MedLoc] = max(MedianCorr);
+    
+    delayMedian = lagsM(MedLoc)/FS;
+    delayKalman = lagsK(KalmanLoc)/FS;
+    
+    obj.mechanicalDelayKalman = delayKalman;
+    obj.mechanicalDelayMedian = delayMedian;
 end
 
 %MORE ADAPTIVE KALMAN FILTER:
@@ -1103,27 +1130,27 @@ end
          title(sprintf('HR Comparison: HR vs GT after median - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
         % plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
          plot(obj.HrEst, 'b', 'DisplayName', 'Radar Est');
-         plot(obj.HrGtEstAfterMedian, 'g--','DisplayName', 'GT After Median');
+         plot(obj.HrGtEstAfterMedian, 'g--','DisplayName', 'GT');
          legend('show', 'Location', 'best');
 
          % Subplot 2
          ax_hr(2) = subplot(3,1,2); hold on; grid on;
-         title('HR after Kalman vs GT after median');
+         title('HR after Kalman vs GT , post time fitting');
         % plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
           if ~isempty(obj.CorrKalmanHr)
              plot(obj.CorrKalmanHr, 'b','DisplayName', 'Radar Est after kalman');
           end
-         plot(obj.CorrGt, 'g--',  'DisplayName', 'GT After Median');
+         plot(obj.CorrGt, 'g--',  'DisplayName', 'GT');
          legend('show', 'Location', 'best');
 
          %Subplot 3
          ax_hr(3) = subplot(3,1,3); hold on; grid on;
-         title('HR after median vs GT after median');
+         title('HR after median vs GT, post time fitting');
        %  plot(obj.HrGtEst, 'r', 'DisplayName', 'GT Est');
-         if ~isempty(obj.HrEstAfterMedian)
-             plot(obj.HrEstAfterMedian, 'b','DisplayName', 'Radar Est After Median');
+         if ~isempty(obj.CorrMedianHr)
+             plot(obj.CorrMedianHr, 'b','DisplayName', 'Radar Est After Median');
          end
-         plot(obj.HrGtEstAfterMedian, 'g','DisplayName', 'GT After Median');
+         plot(obj.HrGtEstAfterMedian, 'g','DisplayName', 'GT');
          legend('show', 'Location', 'best');
 
          % % Subplot 4
@@ -1251,7 +1278,7 @@ end
                 obj
                 bsave (1,1) logical = false
                 saveDir (1,1) string = 'SavedAnalysisFigures'
-                name {mustBeText} = ' ' %NEW, REORDER CALLS TO PLOTALL
+                name {mustBeText} = 'INPUT NAME TO PlotALL' %NEW, REORDER CALLS TO PLOTALL
                 HrToCompare = obj.HrEst ;
                 options.plot_HrPeaks (1,1) logical = true
                 options.plot_RrRates (1,1) logical = true
