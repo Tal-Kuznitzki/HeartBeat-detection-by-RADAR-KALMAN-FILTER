@@ -1,174 +1,188 @@
-%% Optimize Kalman Parameters (Massive Grid Search)
-% ASSUMPTION: 'dataFull' variable exists in the workspace.
-% GOAL: Find global maximum for Correlation (primary) and minimum RMSE (secondary).
+%% Optimize Kalman Parameters (Overnight Mode - Safe Version)
+% GOAL: Find best parameters for EACH (ID, Scenario) pair.
+% FEATURES: 
+%   - Tests Standard vs Bi-Directional filters.
+%   - Ultra-fine grid search (~5000 combos per file).
+%   - Robust protections against missing data or empty files.
+%   - Saves progress automatically to 'temp_optimization_results.mat'.
 
+% --- PROTECTION 1: Check if Data Exists ---
 if ~exist('dataFull', 'var')
-    error('Variable "dataFull" not found. Please run mainFunc.m once to load data.');
+    error('Error: Variable "dataFull" is missing. Please run mainFunc.m to load your data first.');
 end
 
 clc;
-fprintf('Starting Massive Parameter Optimization on "dataFull"...\n');
+fprintf('Starting Robust Overnight Parameter Optimization...\n');
+fprintf('Results will be saved progressively to "temp_optimization_results.mat".\n\n');
 
-% --- 1. EXPANDED PARAMETER GRID ---
-% Q: Process Noise (Lower = smoother/stiffer, Higher = more reactive/jumpy)
-Q_list = [0.01, 0.1, 0.5, 1, 2.5, 5, 10, 15, 25, 40, 55, 75, 100, 150, 250, 500];
-
-% R: Measurement Noise (Lower = trust Radar peaks, Higher = trust Kalman model)
-R_list = [1, 5, 10, 25, 50, 75, 100, 125, 150, 200, 300, 450, 600, 800, 1000, 1500, 2000];
-
-% P: Initial Error Covariance (Convergence speed)
-% Storage for results: [Q, R, P, Mean_RMSE, Mean_Corr]
-results = []; 
-
-% Get size of data
+% --- 1. DEFINITIONS ---
 [nRows, nCols] = size(dataFull);
+P_fixed = 5.0; % Fixed Covariance
 
-% Total iterations
-total_iters = length(Q_list) * length(R_list) * length(P_list);
-fprintf('Total combinations to test: %d\n', total_iters);
+% --- 2. ULTRA-FINE GRID ---
+% Q: Process Noise (0.001 to 3000)
+q_low = logspace(-3, -1, 15);       % 0.001 -> 0.1
+q_mid = logspace(log10(0.15), log10(200), 50); % 0.15 -> 200 (Sweet spot)
+q_high = linspace(250, 3000, 20);   % 250 -> 3000
+Q_list = unique([q_low, q_mid, q_high]);
 
-iter_count = 0;
-hWait = waitbar(0, 'Initializing Grid Search...');
-startTime = tic;
+% R: Measurement Noise (1 to 10000)
+r_low = logspace(0, 1.5, 15);       % 1 -> 30
+r_mid = logspace(log10(35), log10(1500), 50); % 35 -> 1500 (Sweet spot)
+r_high = linspace(1600, 10000, 20); % 1600 -> 10000
+R_list = unique([r_low, r_mid, r_high]);
 
-% --- 2. OPTIMIZATION LOOP ---
-for q = Q_list
-    for r = R_list
-            iter_count = iter_count + 1;
-            
-            % Accumulators
-            sum_rmse = 0;
-            sum_corr = 0;
-            count = 0;
-            
-            % Loop through every patient/scenario
-            for i = 1:nRows
-                for j = 1:nCols
-                    obj = dataFull{i,j};
-                    if isempty(obj), continue; end
-                    
-                    % --- A. RUN KALMAN ---
-                    %obj.KalmanSmooth_BiDir(q, r, p);
-                    obj.KalmanFilterBeats(q,r);
-                    % --- B. RUN TIME FITTING ---
-                    obj.timeFitting();
-                    
-                    % --- C. CALCULATE METRICS ---
-                    est = obj.CorrKalmanHr_on_gt_time;
-                    gt  = obj.CorrGt;
-                    
-                    % Filter NaNs
-                    valid = ~isnan(est) & ~isnan(gt);
-                    
-                    if sum(valid) > 10
-                        % RMSE
-                        err = est(valid) - gt(valid);
-                        rmse = sqrt(mean(err.^2));
-                        
-                        % Accumulate
-                        sum_rmse = sum_rmse + rmse;
-                        sum_corr = sum_corr + obj.kalmanCorrValue;
-                        count = count + 1;
-                  end
-            end
-            
-            % Save averages
-            if count > 0
-                avg_rmse = sum_rmse / count;
-                avg_corr = sum_corr / count;
-                results = [results; q, r, p, avg_rmse, avg_corr];
-            end
-            
-            % Update progress bar (every 20 iterations to save UI time)
-            if mod(iter_count, 20) == 0
-                elapsed = toc(startTime);
-                avg_time_per_iter = elapsed / iter_count;
-                remain_time = (total_iters - iter_count) * avg_time_per_iter;
-                
-                % Find best correlation so far for display
-                current_best_corr = 0;
-                if ~isempty(results)
-                    current_best_corr = max(results(:,5));
-                end
+filterTypes = {'Standard', 'BiDirectional'};
 
-                waitbar(iter_count/total_iters, hWait, ...
-                    sprintf('Progress: %.1f%% | Best Corr: %.4f | ETA: %.0fs', ...
-                    (iter_count/total_iters)*100, current_best_corr, remain_time));
-            end
-        end
-    end
-end
-close(hWait);
-totalTime = toc(startTime);
-fprintf('Optimization finished in %.1f seconds.\n', totalTime);
+% Prepare Results Container
+% Columns: ID, Scenario, BestFilter, BestQ, BestR, MaxCorr, MinRMSE
+final_results = {}; 
 
-% --- 3. ANALYZE RESULTS ---
-T = array2table(results, 'VariableNames', {'Q', 'R', 'P', 'RMSE', 'Correlation'});
+startTotal = tic;
 
-% --- SORTING: Correlation DESCENDING, then RMSE ASCENDING ---
-T_sorted = sortrows(T, {'Correlation', 'RMSE'}, {'descend', 'ascend'});
-
-fprintf('\n=========================================\n');
-fprintf('       TOP 20 CONFIGURATIONS             \n');
-fprintf('       (Sorted by Max Correlation)       \n');
-fprintf('=========================================\n');
-disp(T_sorted(1:min(20, height(T_sorted)), :));
-
-% Extract Winner
-best_Q = T_sorted.Q(1);
-best_R = T_sorted.R(1);
-best_P = T_sorted.P(1);
-best_Corr = T_sorted.Correlation(1);
-best_RMSE = T_sorted.RMSE(1);
-
-fprintf('\nWINNER: Q=%.2f, R=%.2f, P=%.2f\n', best_Q, best_R, best_P);
-fprintf('Metrics: Correlation = %.4f | RMSE = %.4f\n', best_Corr, best_RMSE);
-fprintf('Applying best parameters to all objects in dataFull...\n');
-
-% --- 4. APPLY BEST PARAMS ---
+% --- 3. MAIN LOOP (Per File) ---
 for i = 1:nRows
     for j = 1:nCols
-        if ~isempty(dataFull{i,j})
-            dataFull{i,j}.KalmanSmooth_BiDir(best_Q, best_R, best_P);
-            dataFull{i,j}.timeFitting();
+        
+        % --- PROTECTION 2: Check Object Validity ---
+        if isempty(dataFull{i,j})
+            continue; % Skip empty cells
         end
+        
+        obj = dataFull{i,j};
+        ID_str = string(obj.ID);
+        Scen_str = string(obj.sceneario);
+        
+        % --- PROTECTION 3: Check Data Content ---
+        % If we have no Radar peaks or no ECG ground truth, we can't optimize.
+        if isempty(obj.HrPeaks) || length(obj.HrPeaks) < 5
+            fprintf('Skipping %s - %s: Not enough Radar peaks.\n', ID_str, Scen_str);
+            continue;
+        end
+        if isempty(obj.ecgPeaks) || length(obj.ecgPeaks) < 5
+            fprintf('Skipping %s - %s: Not enough ECG (GT) peaks.\n', ID_str, Scen_str);
+            continue;
+        end
+        
+        fprintf('Processing: %s - %s ...\n', ID_str, Scen_str);
+        
+        % Initialize Best-for-File trackers
+        best_for_file.Corr = -2; % Correlation can be -1, so start lower
+        best_for_file.Q = NaN;
+        best_for_file.R = NaN;
+        best_for_file.Type = "None";
+        best_for_file.RMSE = Inf;
+        
+        % --- 4. FILTER TYPE LOOP ---
+        for fType = 1:length(filterTypes)
+            currentType = filterTypes{fType};
+            
+            hWait = waitbar(0, sprintf('%s-%s (%s)', ID_str, Scen_str, currentType));
+            
+            local_best_corr = -2;
+            
+            % --- 5. GRID SEARCH LOOP ---
+            for q_idx = 1:length(Q_list)
+                q = Q_list(q_idx);
+                
+                for r = R_list
+                    % --- PROTECTION 4: Mathematical Safety ---
+                    try
+                        % 1. Run Filter
+                        if strcmp(currentType, 'Standard')
+                            obj.KalmanFilterBeats(q, r);
+                        else
+                            obj.KalmanSmooth_BiDir(q, r, P_fixed);
+                        end
+                        
+                        % 2. Run Time Fitting
+                        obj.timeFitting();
+                        
+                        % 3. Check Metrics
+                        est = obj.CorrKalmanHr_on_gt_time;
+                        gt  = obj.CorrGt;
+                        
+                        % Ensure vectors are valid and match
+                        valid = ~isnan(est) & ~isnan(gt);
+                        
+                        if sum(valid) > 15
+                            curr_corr = obj.kalmanCorrValue;
+                            
+                            % Check for Local Best (Optimization Step)
+                            if curr_corr > local_best_corr
+                                local_best_corr = curr_corr;
+                                
+                                err = est(valid) - gt(valid);
+                                curr_rmse = sqrt(mean(err.^2));
+                                
+                                % Check for Global File Best
+                                if curr_corr > best_for_file.Corr
+                                    best_for_file.Corr = curr_corr;
+                                    best_for_file.Q = q;
+                                    best_for_file.R = r;
+                                    best_for_file.Type = string(currentType);
+                                    best_for_file.RMSE = curr_rmse;
+                                end
+                            end
+                        end
+                        
+                    catch ME
+                        % If Kalman crashes (e.g. singular matrix), we log nothing and continue.
+                        % Uncomment below to debug specific errors:
+                        % fprintf('Error on Q=%.2f R=%.2f: %s\n', q, r, ME.message);
+                    end
+                end 
+                % Update progress bar per Q-row
+                waitbar(q_idx/length(Q_list), hWait);
+            end
+            close(hWait);
+        end
+        
+        % --- 6. SAVE RESULTS FOR THIS FILE ---
+        if best_for_file.Corr > -2
+            fprintf('  -> WINNER: %s (Q=%.2f, R=%.0f) | Corr: %.4f\n', ...
+                best_for_file.Type, best_for_file.Q, best_for_file.R, best_for_file.Corr);
+            
+            % Permanently apply best parameters to the object in memory
+            if strcmp(best_for_file.Type, 'Standard')
+                obj.KalmanFilterBeats(best_for_file.Q, best_for_file.R);
+            else
+                obj.KalmanSmooth_BiDir(best_for_file.Q, best_for_file.R, P_fixed);
+            end
+            obj.timeFitting(); 
+            
+            % Store in list
+            new_row = {ID_str, Scen_str, best_for_file.Type, ...
+                       best_for_file.Q, best_for_file.R, ...
+                       best_for_file.Corr, best_for_file.RMSE};
+            final_results = [final_results; new_row];
+        else
+            fprintf('  -> NO VALID RESULTS FOUND for %s - %s\n', ID_str, Scen_str);
+        end
+        
+        % PROTECTION 5: Periodic Auto-Save
+        save('temp_optimization_results.mat', 'final_results', 'dataFull');
     end
 end
-fprintf('Done. dataFull updated.\n');
 
-% --- 5. VISUALIZE SEARCH SPACE (Heatmap) ---
-% We visualize R vs Q for the specific optimal P value found.
-subset = results(results(:,3) == best_P, :);
+totalTime = toc(startTotal);
+fprintf('\n======================================================\n');
+fprintf('OPTIMIZATION COMPLETE in %.2f hours.\n', totalTime/3600);
+fprintf('======================================================\n');
 
-if ~isempty(subset)
-    uQ = unique(subset(:,1));
-    uR = unique(subset(:,2));
-    corr_grid = zeros(length(uR), length(uQ));
+% --- 7. FINAL TABLE GENERATION ---
+if ~isempty(final_results)
+    ResultTable = cell2table(final_results, ...
+        'VariableNames', {'ID', 'Scenario', 'BestFilter', 'BestQ', 'BestR', 'MaxCorr', 'MinRMSE'});
+
+    % Sort
+    ResultTable = sortrows(ResultTable, {'ID', 'Scenario'});
     
-    for i = 1:length(uQ)
-        for j = 1:length(uR)
-            % Find the row matching this Q, R (and best P)
-            row = subset(subset(:,1)==uQ(i) & subset(:,2)==uR(j), :);
-            if ~isempty(row)
-                corr_grid(j,i) = row(5); % Correlation
-            else
-                corr_grid(j,i) = NaN;
-            end
-        end
-    end
-    
-    figure('Name', 'Correlation Heatmap (Expanded)', 'Color', 'w');
-    % Use imagesc but force axes to be categorical strings for readability
-    imagesc(corr_grid);
-    colorbar;
-    
-    % Beautify axes
-    set(gca, 'XTick', 1:length(uQ), 'XTickLabel', string(uQ));
-    set(gca, 'YTick', 1:length(uR), 'YTickLabel', string(uR));
-    
-    xtickangle(45);
-    xlabel('Process Noise (Q)');
-    ylabel('Measurement Noise (R)');
-    title(sprintf('Correlation Landscape (Fixed P=%.1f)\nBrighter is Better', best_P));
-    axis xy;
+    disp(ResultTable);
+
+    % Save to CSV
+    writetable(ResultTable, 'Best_Kalman_Parameters.csv');
+    fprintf('Results saved to Best_Kalman_Parameters.csv\n');
+else
+    fprintf('No results were generated. Please check your data quality.\n');
 end
