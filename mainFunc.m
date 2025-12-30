@@ -164,7 +164,8 @@ for indx = 1:length(IDrange)
             'plot_RrRates',false);
 
         %TODO: CHANGE AFTER WE IMPLEMENT KALMAN ! 
-       statisticsAPMed.updateTable(dataFull{indx,sz}.HrEst,dataFull{indx,sz}.HrGtEst,indx,sz); 
+       statisticsAPMed.updateTable...
+       (dataFull{indx,sz}.CorrKalmanHr_on_gt_time,dataFull{indx,sz}.HrGtEstAfterMedian,indx,sz); 
        % for q= 0.5:0.25:15
        %   for p = 0.5:0.25:15
        %      dataFull{indx,sz}.KalmanFilterBeats(q,p);

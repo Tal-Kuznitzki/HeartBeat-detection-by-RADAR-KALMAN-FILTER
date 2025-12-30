@@ -380,8 +380,8 @@ function KalmanFilterBeats(obj,Q,R_base)
     P = 5.0; 
     if(nargin<3)
                   % Initial uncertainty 10
-        Q = 55;          % Process noise (Standard deviation of beat-to-beat change) oldval 0.5
-        R_base = 150.5;     % Measurement noise (Trust in the radar peak location) oldval 5 
+        Q = 35;          % Process noise (Standard deviation of beat-to-beat change) oldval 0.5
+        R_base = 112;     % Measurement noise (Trust in the radar peak location) oldval 5 
         
     end
     %best so far: 5 5 7.5
@@ -639,7 +639,9 @@ end
             
             % Sync lengths
             hold on;
-            title (['Ground Truth-Radar Pointwise Correlation for ', name]);
+           
+            title(sprintf('Correlation Diag for GT vs %s - ID: %s, Scenario: %s',name, string(obj.ID), obj.sceneario));
+            
             lengthmax= min(length(HrToCompare),length(obj.CorrGt));
             plot(obj.CorrGt(1:lengthmax),HrToCompare(1:lengthmax),"DisplayName",' Median Ground truth to RADAR heart rate'...
                 ,'Marker','*','LineStyle','none')
