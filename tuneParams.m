@@ -1,10 +1,7 @@
-%% Optimize Kalman Parameters (Overnight Mode - Safe Version)
+%% Optimize Kalman Parameters (Lightweight & OneDrive Safe)
 % GOAL: Find best parameters for EACH (ID, Scenario) pair.
-% FEATURES: 
-%   - Tests Standard vs Bi-Directional filters.
-%   - Ultra-fine grid search (~5000 combos per file).
-%   - Robust protections against missing data or empty files.
-%   - Saves progress automatically to 'temp_optimization_results.mat'.
+% OUTPUT: A CSV file with the best Q, R, and Filter Type for each file.
+% DOES NOT save the heavy 'dataFull' object.
 
 % --- PROTECTION 1: Check if Data Exists ---
 if ~exist('dataFull', 'var')
@@ -13,7 +10,11 @@ end
 
 clc;
 fprintf('Starting Robust Overnight Parameter Optimization...\n');
-fprintf('Results will be saved progressively to "temp_optimization_results.mat".\n\n');
+
+% Define a safe temporary file path (bypassing OneDrive)
+tempPath = fullfile(tempdir, 'kalman_optimization_progress.mat');
+fprintf('Progress will be saved to local temp: %s\n', tempPath);
+fprintf('If MATLAB crashes, load that file to recover "final_results".\n\n');
 
 % --- 1. DEFINITIONS ---
 [nRows, nCols] = size(dataFull);
@@ -22,20 +23,19 @@ P_fixed = 5.0; % Fixed Covariance
 % --- 2. ULTRA-FINE GRID ---
 % Q: Process Noise (0.001 to 3000)
 q_low = logspace(-3, -1, 15);       % 0.001 -> 0.1
-q_mid = logspace(log10(0.15), log10(200), 50); % 0.15 -> 200 (Sweet spot)
-q_high = linspace(250, 3000, 20);   % 250 -> 3000
+q_mid = logspace(log10(0.15), log10(200), 50); % Sweet spot
+q_high = linspace(250, 3000, 20);   
 Q_list = unique([q_low, q_mid, q_high]);
 
 % R: Measurement Noise (1 to 10000)
-r_low = logspace(0, 1.5, 15);       % 1 -> 30
-r_mid = logspace(log10(35), log10(1500), 50); % 35 -> 1500 (Sweet spot)
-r_high = linspace(1600, 10000, 20); % 1600 -> 10000
+r_low = logspace(0, 1.5, 15);       
+r_mid = logspace(log10(35), log10(1500), 50); % Sweet spot
+r_high = linspace(1600, 10000, 20); 
 R_list = unique([r_low, r_mid, r_high]);
 
 filterTypes = {'Standard', 'BiDirectional'};
 
 % Prepare Results Container
-% Columns: ID, Scenario, BestFilter, BestQ, BestR, MaxCorr, MinRMSE
 final_results = {}; 
 
 startTotal = tic;
@@ -45,16 +45,13 @@ for i = 1:nRows
     for j = 1:nCols
         
         % --- PROTECTION 2: Check Object Validity ---
-        if isempty(dataFull{i,j})
-            continue; % Skip empty cells
-        end
+        if isempty(dataFull{i,j}), continue; end
         
         obj = dataFull{i,j};
         ID_str = string(obj.ID);
         Scen_str = string(obj.sceneario);
         
         % --- PROTECTION 3: Check Data Content ---
-        % If we have no Radar peaks or no ECG ground truth, we can't optimize.
         if isempty(obj.HrPeaks) || length(obj.HrPeaks) < 5
             fprintf('Skipping %s - %s: Not enough Radar peaks.\n', ID_str, Scen_str);
             continue;
@@ -67,7 +64,7 @@ for i = 1:nRows
         fprintf('Processing: %s - %s ...\n', ID_str, Scen_str);
         
         % Initialize Best-for-File trackers
-        best_for_file.Corr = -2; % Correlation can be -1, so start lower
+        best_for_file.Corr = -2; 
         best_for_file.Q = NaN;
         best_for_file.R = NaN;
         best_for_file.Type = "None";
@@ -77,9 +74,11 @@ for i = 1:nRows
         for fType = 1:length(filterTypes)
             currentType = filterTypes{fType};
             
-            hWait = waitbar(0, sprintf('%s-%s (%s)', ID_str, Scen_str, currentType));
-            
+            % Reset local best for this specific filter type
             local_best_corr = -2;
+            
+            % Progress bar for this file & filter type
+            hWait = waitbar(0, sprintf('%s-%s (%s)', ID_str, Scen_str, currentType));
             
             % --- 5. GRID SEARCH LOOP ---
             for q_idx = 1:length(Q_list)
@@ -101,22 +100,20 @@ for i = 1:nRows
                         % 3. Check Metrics
                         est = obj.CorrKalmanHr_on_gt_time;
                         gt  = obj.CorrGt;
-                        
-                        % Ensure vectors are valid and match
                         valid = ~isnan(est) & ~isnan(gt);
                         
                         if sum(valid) > 15
                             curr_corr = obj.kalmanCorrValue;
                             
-                            % Check for Local Best (Optimization Step)
+                            % Optimization Check
                             if curr_corr > local_best_corr
                                 local_best_corr = curr_corr;
                                 
-                                err = est(valid) - gt(valid);
-                                curr_rmse = sqrt(mean(err.^2));
-                                
-                                % Check for Global File Best
+                                % Check Global Best for File
                                 if curr_corr > best_for_file.Corr
+                                    err = est(valid) - gt(valid);
+                                    curr_rmse = sqrt(mean(err.^2));
+                                    
                                     best_for_file.Corr = curr_corr;
                                     best_for_file.Q = q;
                                     best_for_file.R = r;
@@ -125,25 +122,22 @@ for i = 1:nRows
                                 end
                             end
                         end
-                        
-                    catch ME
-                        % If Kalman crashes (e.g. singular matrix), we log nothing and continue.
-                        % Uncomment below to debug specific errors:
-                        % fprintf('Error on Q=%.2f R=%.2f: %s\n', q, r, ME.message);
+                    catch
+                        % Ignore math errors
                     end
                 end 
-                % Update progress bar per Q-row
+                % Update progress bar
                 waitbar(q_idx/length(Q_list), hWait);
             end
             close(hWait);
         end
         
-        % --- 6. SAVE RESULTS FOR THIS FILE ---
+        % --- 6. UPDATE OBJECT & SAVE RESULTS ---
         if best_for_file.Corr > -2
             fprintf('  -> WINNER: %s (Q=%.2f, R=%.0f) | Corr: %.4f\n', ...
                 best_for_file.Type, best_for_file.Q, best_for_file.R, best_for_file.Corr);
             
-            % Permanently apply best parameters to the object in memory
+            % Update object in memory (so you can plot it later if you want)
             if strcmp(best_for_file.Type, 'Standard')
                 obj.KalmanFilterBeats(best_for_file.Q, best_for_file.R);
             else
@@ -157,11 +151,16 @@ for i = 1:nRows
                        best_for_file.Corr, best_for_file.RMSE};
             final_results = [final_results; new_row];
         else
-            fprintf('  -> NO VALID RESULTS FOUND for %s - %s\n', ID_str, Scen_str);
+            fprintf('  -> NO VALID RESULTS for %s - %s\n', ID_str, Scen_str);
         end
         
-        % PROTECTION 5: Periodic Auto-Save
-        save('temp_optimization_results.mat', 'final_results', 'dataFull');
+        % --- PROTECTION 5: Lightweight Incremental Save ---
+        % Only saves the parameter list to TEMP folder.
+        try
+            save(tempPath, 'final_results');
+        catch ME
+            fprintf(2, 'Warning: Could not save temp file. Continuing... (%s)\n', ME.message);
+        end
     end
 end
 
@@ -170,19 +169,23 @@ fprintf('\n======================================================\n');
 fprintf('OPTIMIZATION COMPLETE in %.2f hours.\n', totalTime/3600);
 fprintf('======================================================\n');
 
-% --- 7. FINAL TABLE GENERATION ---
+% --- 7. FINAL EXPORT (Small Files Only) ---
 if ~isempty(final_results)
     ResultTable = cell2table(final_results, ...
         'VariableNames', {'ID', 'Scenario', 'BestFilter', 'BestQ', 'BestR', 'MaxCorr', 'MinRMSE'});
-
-    % Sort
     ResultTable = sortrows(ResultTable, {'ID', 'Scenario'});
     
     disp(ResultTable);
 
-    % Save to CSV
-    writetable(ResultTable, 'Best_Kalman_Parameters.csv');
-    fprintf('Results saved to Best_Kalman_Parameters.csv\n');
+    % Save Table to CSV
+    csvName = 'Best_Kalman_Parameters.csv';
+    writetable(ResultTable, csvName);
+    
+    % Save Table to MAT (Just the table, not the data)
+    matName = 'Optimization_Results_Table.mat';
+    save(matName, 'ResultTable'); 
+    
+    fprintf('Success! Saved parameters to:\n  1. %s\n  2. %s\n', csvName, matName);
 else
-    fprintf('No results were generated. Please check your data quality.\n');
+    fprintf('No results were generated.\n');
 end
