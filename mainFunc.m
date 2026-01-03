@@ -29,8 +29,8 @@ b_plot_ALL = true;
 
 
 
-IDrange = 7 ; %11:12;   
-scenarios={'Resting','Valsalva','Apnea','TiltDown','TiltUp'}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
+IDrange = 11 ; %11:12;   
+scenarios= {"Resting","Valsalva","Apnea","Tilt-down","Tilt-up"}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
@@ -57,8 +57,6 @@ end
 if b_CLEAR_OLD && exist(statsDirName,'dir')
     rmdir(statsDirName,'s');
 end
-
-
 
 %% 2. initialization - Loop 
 % create filters
@@ -113,8 +111,12 @@ for indx = 1:length(IDrange)
 %% 4. initial Radar processing
  %%% TODO: get our own radar_dist
         %TODO: here it is still -1 
-      dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,-1*radar_dist,0,tfm_respiration);
-      
+        if (IDrange(indx)==10 && scenario=="TiltDown")
+              dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg(2000:end),radar_dist(2000:end),0,tfm_respiration);
+        else
+            dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration);
+        end
+
 %% 5. frequency domain processing
         tic
         dataFull{indx,sz}.DownSampleRadar(resampleFS);
@@ -128,9 +130,22 @@ for indx = 1:length(IDrange)
         % based solely on findPeaks() and pan_tompkin 
         % used HrSignal,RrSignal ecg_gt resp_gt
 
+
+        [peaksDelay,sign] = dataFull{indx,sz}.FindMechDelay();
+        %finds the delay between the  peaks and ECG
+        dataFull{indx,sz}.radar_dist = sign.* dataFull{indx,sz}.radar_dist ;
+
+        dataFull{indx,sz}.FindPeaks(); 
+        % generates peaks: HrPeaks, RrPeaks , ecgPeaks ,Rrpeaks_gt
+        % based solely on findPeaks() and pan_tompkin 
+        % used HrSignal,RrSignal ecg_gt resp_gt
+
         dataFull{indx,sz}.FindRates(); 
         % based on peaks: Hr, Rr , ecg(gt) ,Rr_gt and peaksFinal ,
         % generates rates: HrEst, HrGtEst, RrEst, RrGtEst 
+
+
+
 
         dataFull{indx,sz}.MedianHr(); 
         % based on  HrEst, HrGtEst 
@@ -141,13 +156,13 @@ for indx = 1:length(IDrange)
         %dataFull{indx,sz}.FindHrSpikes(1);
 
 
-        dataFull{indx,sz}.KalmanFilterBeats();
+        % dataFull{indx,sz}.KalmanFilterBeats(2.108,7.1968);
+        dataFull{indx,sz}.KalmanFilterBeats(35,112);
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
         % generates HrPeaksAfterKalman and HrEstAfterKalman
 
         %[medDelay, kalDelay] = dataFull{indx,sz}.FindMechanicalDelay();
-        [peaksDelay,kalmanpeaksDelay] = dataFull{indx,sz}.FindMechDelay();
-        %finds the delay between the  peaks and ECG
+
         dataFull{indx,sz}.timeFitting(); %THIS RETURNS CORRELATED HR
       
         dataFull{indx,sz}.plot_examples();
@@ -163,9 +178,8 @@ for indx = 1:length(IDrange)
             'plot_RrSignals',false, ...
             'plot_RrRates',false);
 
-        %TODO: CHANGE AFTER WE IMPLEMENT KALMAN ! 
        statisticsAPMed.updateTable...
-       (dataFull{indx,sz}.CorrKalmanHr_on_gt_time,dataFull{indx,sz}.HrGtEstAfterMedian,indx,sz); 
+       (dataFull{indx,sz}.CorrKalmanHr_on_gt_time,dataFull{indx,sz}.CorrGt,indx,sz); 
        % for q= 0.5:0.25:15
        %   for p = 0.5:0.25:15
        %      dataFull{indx,sz}.KalmanFilterBeats(q,p);

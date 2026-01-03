@@ -226,7 +226,7 @@ classdef radarClass < handle
         obj.HrGtEstAfterMedian = gt_replaced_with_median_in_outliers;
         end
         function [] = CalcError(obj,hrToCompare)
-            min_len = min(length(obj.HrGtEstAfterMedian), length(hrToCompare));
+            min_len = min(length(obj.CorrGt), length(hrToCompare));
             v1=hrToCompare(1:min_len);
             v2=obj.HrGtEstAfterMedian(1:min_len);
 
@@ -480,55 +480,61 @@ end
 %     obj.mechanicalDelayKalman = delayKalman;
 %     obj.mechanicalDelayMedian = delayMedian;
 % end
-function [delay_sec_normal,delay_sec_kalman]= FindMechDelay(obj)
+function [delay_sec_normal,sign]= FindMechDelay(obj)
     %first, the simplest method - XCORR on the HR peaks times of different
     %signals and ECG
-
     hr_peak_times  = obj.HrPeaks; %sample rate - 100 
-    hr_peak_times_after_kalman = obj.HrPeaksAfterKalman; %sample rate - 100 
+    %hr_peak_times_after_kalman = obj.HrPeaksAfterKalman; %sample rate - 100 
 
     gt_peak_times = obj.ecgPeaks ; % sample rate  - 2000
 
     fs_common = 1000;
     max_time = max([max(hr_peak_times), max(gt_peak_times)]);
-    max_time_betweenKalman = max([max(hr_peak_times_after_kalman), max(gt_peak_times)]);
+   % max_time_betweenKalman = max([max(hr_peak_times_after_kalman), max(gt_peak_times)]);
 
 
     grid_len_peaks_gt = ceil(max_time*fs_common)+1;
-    grid_len_peaksAfterKalman_gt =  ceil(max_time_betweenKalman*fs_common)+1;
+    %grid_len_peaksAfterKalman_gt =  ceil(max_time_betweenKalman*fs_common)+1;
 
     sig_ECG = zeros(grid_len_peaks_gt, 1);
     sig_HR  = zeros(grid_len_peaks_gt, 1);
 
-    sig_ECG_kalman = zeros(grid_len_peaksAfterKalman_gt, 1);
-    sig_HR_kalman  = zeros(grid_len_peaksAfterKalman_gt, 1);
+    %sig_ECG_kalman = zeros(grid_len_peaksAfterKalman_gt, 1);
+    %sig_HR_kalman  = zeros(grid_len_peaksAfterKalman_gt, 1);
 
     idx_ecg = round(gt_peak_times .* fs_common)+1;
     idx_HR  = round(hr_peak_times .* fs_common)+1;
-    idx_HR_after_kalman = round(hr_peak_times_after_kalman .* fs_common)+1;
+    %idx_HR_after_kalman = round(hr_peak_times_after_kalman .* fs_common)+1;
 
     sig_ECG(idx_ecg)=1;
     sig_HR(idx_HR)=1;
 
     sig_ECG_kalman(idx_ecg)=1;
-    sig_HR_kalman(idx_HR_after_kalman)=1;
-
+    %sig_HR_kalman(idx_HR_after_kalman)=1;
 
     [res, lags_hr_gt] = xcorr(sig_HR, sig_ECG,2*fs_common);
-    [res_kalman, lags_hrkalman_gt] = xcorr(sig_HR_kalman, sig_ECG_kalman, 2*fs_common);
+    %[res_kalman, lags_hrkalman_gt] = xcorr(sig_HR_kalman, sig_ECG_kalman, 2*fs_common);
     
     [~,max_idx_normal]=max(res);
-    [~,max_idx_kalman]=max(res_kalman);
+    %[~,max_idx_kalman]=max(res_kalman);
 
 
     lag_samples_normal = lags_hr_gt(max_idx_normal);
-    lag_samples_kalman = lags_hrkalman_gt(max_idx_kalman);
+    %lag_samples_kalman = lags_hrkalman_gt(max_idx_kalman);
 
     delay_sec_normal = lag_samples_normal/fs_common;
-    delay_sec_kalman = lag_samples_kalman/fs_common;
+    %delay_sec_kalman = lag_samples_kalman/fs_common;
     
     obj.mechanicalDelayMedian = delay_sec_normal;
-    obj.mechanicalDelayKalman = delay_sec_kalman;
+   % obj.mechanicalDelayKalman = delay_sec_kalman;
+
+    if (delay_sec_normal>0)
+        sign=1;
+    elseif (delay_sec_normal<0)
+        sign=-1;
+    end
+
+
 end
 function KalmanSmooth_BiDir(obj, Q_in, R_in, P_in)
     %KalmanSmooth_BiDir (Zero-Lag Smoother)
@@ -649,7 +655,8 @@ end
             ylabel(['RADAR Estimated HR of ', name]);
             
             plot((30:1:150),(30:1:150));
-            legend('Measurements', 'Corr Axis','Location','best'); grid on; hold off;
+            rho = corr(obj.CorrGt(:), HrToCompare(:), 'Rows', 'complete');
+            legend(sprintf('Measurements (r = %.2f)', rho), 'Location', 'best');
         end       
        
        %% Plot 2: HR Peaks and Signals
@@ -672,7 +679,7 @@ end
             end
             
             ylabel('Amp (scaled)');
-            xlabel('Time (s)'); % ADDED
+            xlabel('Time (s)'); 
             legend('show', 'Location', 'best'); grid on; hold off;
 
             % Subplot 2: ECG Reference
@@ -1002,11 +1009,11 @@ end
                 % Construct full filename: ID_Scenario_FigName
                 baseFileName = sprintf('%s_%s_%s', string(obj.ID), obj.sceneario, safeFigName);
                 
-                pngFileName = fullfile(saveDir, [baseFileName, '.png']);
+                %pngFileName = fullfile(saveDir, [baseFileName, '.png']);
                 figFileName = fullfile(saveDir, [baseFileName, '.fig']);
 
                 try
-                    saveas(hFig, pngFileName, 'png'); 
+                    %saveas(hFig, pngFileName, 'png'); 
                     saveas(hFig, figFileName, 'fig');
                     fprintf('  -> Saved: %s\n', baseFileName);
                 catch ME
