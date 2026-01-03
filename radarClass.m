@@ -200,6 +200,46 @@ classdef radarClass < handle
             obj.RrGtEst = 60 ./ diff(obj.Rrpeaks_gt);            
         end
 
+        function [Q,R] = ProduceKalmanCoeff(obj)
+            variance = var(obj.HrEst);
+            
+            variance = max(variance, 1e-4);   % safety floor
+            scenario = obj.sceneario;
+            R= 19.31;
+            switch string(scenario)
+                case "Resting"
+                    C = 1.0e3;  a = -1.0;
+                    R= 9.21;
+                case "Apnea"
+                    C = 1.5e3;  a = -1.2;
+                    R= 3.43;
+
+                case "TiltDown"
+                    C = 1.0e3;  a = -0.7;
+                    R= 11.79;
+
+                case "TiltUp"
+                    C = 2.0e3;  a = -1.4;
+                    R= 35;
+
+                case "Valsalva"
+                    C = 2.5e3;  a = -1.5;
+                    R = R * variance.^(-0.3);
+
+
+                otherwise
+                    C = 1.2e3;  a = -1.0;  % fallback
+            end
+
+            Q = C * variance.^a;
+
+
+        % Optional bounds for numerical stability
+            Q = min(max(Q, 1e-3), 3e3);
+        end
+
+
+
         function MedianHr(obj,size)
             if(nargin<2)
                 size=10;

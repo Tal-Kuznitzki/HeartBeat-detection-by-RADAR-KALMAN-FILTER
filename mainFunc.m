@@ -29,8 +29,8 @@ b_plot_ALL = true;
 
 
 
-IDrange = 11 ; %11:12;   
-scenarios= {"Resting","Valsalva","Apnea","Tilt-down","Tilt-up"}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
+IDrange = 1:5 ; %11:12;   
+scenarios= {"Resting","Valsalva","Apnea","TiltDown","TiltUp"}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
@@ -116,6 +116,8 @@ for indx = 1:length(IDrange)
         else
             dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration);
         end
+         dataFull{indx,sz}.radar_i = radar_i;
+         dataFull{indx,sz}.radar_q = radar_q;
 
 %% 5. frequency domain processing
         tic
@@ -129,7 +131,7 @@ for indx = 1:length(IDrange)
         % generates peaks: HrPeaks, RrPeaks , ecgPeaks ,Rrpeaks_gt
         % based solely on findPeaks() and pan_tompkin 
         % used HrSignal,RrSignal ecg_gt resp_gt
-
+        
 
         [peaksDelay,sign] = dataFull{indx,sz}.FindMechDelay();
         %finds the delay between the  peaks and ECG
@@ -143,7 +145,7 @@ for indx = 1:length(IDrange)
         dataFull{indx,sz}.FindRates(); 
         % based on peaks: Hr, Rr , ecg(gt) ,Rr_gt and peaksFinal ,
         % generates rates: HrEst, HrGtEst, RrEst, RrGtEst 
-
+        
 
 
 
@@ -153,11 +155,10 @@ for indx = 1:length(IDrange)
         % after median filter on each.
 
 
-        %dataFull{indx,sz}.FindHrSpikes(1);
+        [Q,R] = dataFull{indx,sz}.ProduceKalmanCoeff(); 
+      
 
-
-        % dataFull{indx,sz}.KalmanFilterBeats(2.108,7.1968);
-        dataFull{indx,sz}.KalmanFilterBeats(35,112);
+        dataFull{indx,sz}.KalmanFilterBeats(Q,R); %Q=35 R=112
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
         % generates HrPeaksAfterKalman and HrEstAfterKalman
 
@@ -165,18 +166,18 @@ for indx = 1:length(IDrange)
 
         dataFull{indx,sz}.timeFitting(); %THIS RETURNS CORRELATED HR
       
-        dataFull{indx,sz}.plot_examples();
-        %%
-        % show all results with CorrGt and CorrKalmanHr
-        
+        % % % dataFull{indx,sz}.plot_examples();
+        % % % %%
+        % % % % show all results with CorrGt and CorrKalmanHr
+        % % % 
         dataFull{indx,sz}.CalcError(dataFull{indx,sz}.CorrKalmanHr_on_gt_time);
-        dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
-           'HR after Kalman & time fit',...
-            dataFull{indx,sz}.CorrKalmanHr_on_gt_time,...
-            dataFull{indx,sz}.HrPeaksAfterKalman,...
-            dataFull{indx,sz}.corrtime,... %time vector after fitting
-            'plot_RrSignals',false, ...
-            'plot_RrRates',false);
+        % % % dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
+        % % %    'HR after Kalman & time fit',...
+        % % %     dataFull{indx,sz}.CorrKalmanHr_on_gt_time,...
+        % % %     dataFull{indx,sz}.HrPeaksAfterKalman,...
+        % % %     dataFull{indx,sz}.corrtime,... %time vector after fitting
+        % % %     'plot_RrSignals',false, ...
+        % % %     'plot_RrRates',false);
 
        statisticsAPMed.updateTable...
        (dataFull{indx,sz}.CorrKalmanHr_on_gt_time,dataFull{indx,sz}.CorrGt,indx,sz); 
