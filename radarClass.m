@@ -16,6 +16,7 @@ classdef radarClass < handle
         %proccessed signals
         radar_decimated
         HrSignal
+        KF_HrSignal
         RrSignal
         HrPeaks
         HrPeaksAfterKalman
@@ -283,70 +284,7 @@ classdef radarClass < handle
             obj.rawErr2Hr = sortrows(gt_vs_rawerr_raw_matrix ); 
             obj.mae2Hr = sortrows(gt_vs_abserr_raw_matrix );   
         end
-% function [missingBeats, excessBeats] = FindHrSpikes(obj,update) %%HrEstSpikes
-%             % this function finds anomalies:
-%             % excess peaks removed
-%             % missing peaks added
-%             % high jitter reduced
-%             % input: power of jitter reduction (N/N+1)
-%             % output: Nx2 of excess or missing beats, 
-%             % first col for old index and 2nd col for new
-% 
-%             hr = obj.HrEst;
-%             N  = length(hr);
-%             sizeDiff=0;
-%             for i=2:N-2
-%                 % check if hr is out of bounds, if its too low, or 
-%                 % irregularly low, we are missing a beat, 
-%                 % double the value and concatenate a copy
-%                 % of it.
-%                 % 
-%                 % if its too high, or irregularly high,
-%                 % remove this sample. 
-% 
-%                 missingBeats = [];
-%                 excessBeats = [];
-%                 effI= i+sizeDiff;
-%                 %high
-%                 if (hr(effI) > 180 || hr(effI)+hr(effI+1)>1.7*(hr(effI-1)+hr(effI+2)))&&...
-%                     (hr(effI) > hr(effI-1) && hr(effI) > hr(effI+2))...
-%                     && (hr(effI+1) > hr(effI-1) && hr(effI+1) > hr(effI+2))
-% 
-%                     hr = [hr(1:effI-1);1/(1/(hr(effI)) + 1/(hr(effI+1)));...
-%                                                 hr(effI+2:N+sizeDiff)];
-%                     sizeDiff=sizeDiff-1;
-%                     excessBeats = [excessBeats ; i , effI-1]; 
-%                     continue;
-%                 end
-%                 %find high var couple to skip
-%                 if(hr(effI)<0.65*hr(effI-1) && hr(effI+1)>1.35*hr(effI+2)) ||...
-%                   (hr(effI)>1.35*hr(effI-1) && hr(effI+1)<0.65*hr(effI+2))
-% 
-%                     % hr(effI)   = (norm*hr(effI-1) + hr(effI))  /(norm+1);
-%                     % hr(effI+1) = (norm*hr(effI+2) + hr(effI+1))/(norm+1);
-% 
-%                     continue;
-%                 end
-%                 %low
-%                 if ( hr(effI)<35 || hr(effI)<0.55*(hr(effI-1)+hr(effI+1))/2)
-%                     % TODO, check if irregular high caused this
-%                     hr(effI) = (hr(effI-1)+hr(effI+1))/2;
-%                     hr = [hr(1:effI);hr(effI);hr(effI+1:N+sizeDiff)];
-%                     sizeDiff=sizeDiff+1;
-%                     missingBeats = [missingBeats; i , effI+1];
-%                     continue;
-%                 end
-% 
-%             end
-%             % obj.excessLocsFromHr = excessBeats;
-%             % obj.missingLocsFromHr = missingBeats;
-%             obj.HrEst = hr;
-%             if (update)
-%               ibi = 60 ./  hr ;
-%               ibi = ibi(:);
-%               obj.HrPeaks = obj.HrPeaks(1) + [0;cumsum(ibi)];
-%             end
-%         end
+
 
 function timeFitting(obj)
     tEstPk = obj.HrPeaks(:);                 % seconds
@@ -417,14 +355,14 @@ function KalmanFilterBeats(obj,Q,R_base)
     else
         x = median(valid_data(1:min(5, end)));
     end
-    P = 5.0; 
+    P = 65.0; 
     if(nargin<3)
                   % Initial uncertainty 10
         Q = 35;          % Process noise (Standard deviation of beat-to-beat change) oldval 0.5
         R_base = 112;     % Measurement noise (Trust in the radar peak location) oldval 5 
         
     end
-    %best so far: 5 5 7.5
+    
     hr_hat = nan(size(hr_meas));
 
     % ---- 3. Filtering Loop ----
@@ -497,29 +435,238 @@ function KalmanFilterBeats(obj,Q,R_base)
 
     obj.HrPeaksAfterKalman = rec_peaks;
 end
-% function [delayMedian, delayKalman] = FindMechanicalDelay(obj) % xcorr to find mechanical delay
-%     upsamp = 20;
-%     FS= upsamp*obj.fs_new;
-%     gt = resample(obj.HrGtEstAfterMedian,upsamp,1);
-% 
-%     % kalman =  resample(obj.CorrKalmanHr_on_gt_time,upsamp,1);
-%     % median =  resample(obj.CorrMedianHr_on_gt_time,upsamp,1);
-% 
-%     kalman =  resample(obj.HrEstAfterKalman,upsamp,1);
-%     median =  resample(obj.HrEstAfterMedian,upsamp,1);
-% 
-%     %now it has 20xresampleFS samples, divide maximum loc by 20fs
-%     [KalmanCorr, lagsK] = xcorr(gt,kalman);
-%     [MedianCorr,lagsM] = xcorr(gt,median);
-%     [~, KalmanLoc] = max(KalmanCorr);
-%     [~, MedLoc] = max(MedianCorr);
-% 
-%     delayMedian = lagsM(MedLoc)/FS;
-%     delayKalman = lagsK(KalmanLoc)/FS;
-% 
-%     obj.mechanicalDelayKalman = delayKalman;
-%     obj.mechanicalDelayMedian = delayMedian;
-% end
+function out = kalmanSmoothRadarDist(obj, config)
+% kalmanSmoothRadarDist
+% Kalman smoothing for raw radar_dist at high fs (e.g. 2000 Hz).
+% Supports 2-state (x, xdot) and 3-state (x, xdot, xddot).
+%
+% INPUTS
+%   radar_dist : Nx1 (or 1xN) double, raw distance (meters or arbitrary units)
+%   fs         : sampling rate in Hz (e.g. 2000)
+%   config     : struct with optional fields:
+%       .order            (2 or 3) default 3
+%       .useRTS           (true/false) default true (Rauch-Tung-Striebel smoother)
+%       .initPScale       default 10
+%       .sigmaMeas        measurement noise std (same units as radar_dist)
+%       .sigmaAcc         process accel noise std (units/s^2) for order=3
+%       .sigmaJerk        process jerk noise std (units/s^3) for order=2
+%       .robustDetrend    (true/false) default true
+%       .hpCutHz          detrend highpass cutoff (Hz) default 0.05
+%       .nanPolicy        'interp' or 'omit' default 'interp'
+%
+% OUTPUT (struct)
+%   out.x, out.xdot, out.xddot (if order=3)
+%   out.x_filt (filtered forward pass), out.x_smooth (RTS)
+%   out.innov, out.S (innovation & its variance)
+%   out.params (A,H,Q,R,dt,order, estimated sigmas)
+
+arguments
+    obj {mustBeNonempty}
+    config.order (1,1) double {mustBeMember(config.order,[2 3])} = 3
+    config.useRTS (1,1) logical = true
+    config.initPScale (1,1) double {mustBePositive} = 10
+    config.sigmaMeas (1,1) double = NaN
+    config.sigmaAcc (1,1) double = NaN
+    config.sigmaJerk (1,1) double = NaN
+    config.robustDetrend (1,1) logical = true
+    config.hpCutHz (1,1) double {mustBeNonnegative} = 0.05
+    config.nanPolicy (1,:) char {mustBeMember(config.nanPolicy,{'interp','omit'})} = 'interp'
+end
+
+
+x = obj.HrSignal(:);
+fs = obj.fs_new;
+N = numel(x);
+dt = 1/fs;
+
+% --- NaN handling ---
+nanMask = isnan(x);
+if any(nanMask)
+    switch config.nanPolicy
+        case 'interp'
+            t = (0:N-1)'*dt;
+            x(nanMask) = interp1(t(~nanMask), x(~nanMask), t(nanMask), 'linear', 'extrap');
+        case 'omit'
+            % For 'omit', we keep NaNs and skip measurement update when NaN
+            % (implemented below)
+    end
+end
+
+% --- Robust detrend / drift removal (VERY important at 2000 Hz) ---
+x0 = x;
+if config.robustDetrend
+    % remove slow drift with a gentle highpass implemented via moving median
+    % window length ~ 1/config.hpCutHz seconds (clamped)
+    wSec = max(5, 1/max(config.hpCutHz,1e-3)); % seconds
+    w = max(201, 2*floor((wSec*fs)/2)+1);      % odd, >=201
+    trend = movmedian(x, w, 'omitnan');
+    x = x - trend;
+end
+
+% --- Estimate measurement noise if not provided ---
+% Use robust estimate on high-frequency component: diff(x) is dominated by noise at high fs.
+if isnan(config.sigmaMeas)
+    % Estimate measurement noise from short-window residual (robust)
+    L = max(5, round(0.05*fs));          % ~50 ms window (fs dependent)
+    x_lp = movmean(x, L, 'omitnan');
+    resid = x - x_lp;
+    sigmaMeas = mad(resid,1);
+    if sigmaMeas == 0 || ~isfinite(sigmaMeas)
+        sigmaMeas = std(resid) + eps;
+    end
+else
+    sigmaMeas = config.sigmaMeas;
+end
+sigmaMeas = max(sigmaMeas, 1e-4*std(x) + eps);
+sigScale = std(x(~isnan(x)));
+sigmaFloor = 0.5 * sigScale;      % 1% of signal std (start here)
+sigmaMeas  = max(sigmaMeas, sigmaFloor);
+R = sigmaMeas^2;
+
+
+
+
+% --- Build state-space model ---
+order = config.order;
+H = zeros(1, order); H(1) = 1; % measure position only
+
+if order == 2
+    % State: [x; xdot]
+    A = [1 dt;
+         0 1];
+
+    % Process noise driven by "jerk" (random accel changes) on xdot
+    % Continuous-time white noise on acceleration integrated gives Q ~ sigmaJerk^2 * [...]
+    if isnan(config.sigmaJerk)
+        % crude default: set jerk so that model is moderately flexible
+        sigmaJerk = 10*sigmaMeas / (dt^2); % heuristic
+    else
+        sigmaJerk = config.sigmaJerk;
+    end
+    q = sigmaJerk^2;
+    Q = q * [dt^3/3, dt^2/2;
+             dt^2/2, dt];
+
+elseif order == 3
+    % State: [x; xdot; xddot]
+    A = [1 dt 0.5*dt^2;
+         0 1  dt;
+         0 0  1];
+
+    % Process noise driven by "acceleration random walk" (white noise on jerk)
+    if isnan(config.sigmaAcc)
+        % default: allow moderate accel changes; scale from sigmaMeas
+        sigmaAcc = 5*sigmaMeas / (dt^2); % heuristic (units/s^2)
+    else
+        sigmaAcc = config.sigmaAcc;
+    end
+    q = sigmaAcc^2;
+    % Standard discrete Q for constant-acceleration model with white noise on acceleration
+    Q = q * [dt^5/20, dt^4/8,  dt^3/6;
+             dt^4/8,  dt^3/3,  dt^2/2;
+             dt^3/6,  dt^2/2,  dt];
+end
+
+R = sigmaMeas^2;
+
+% --- Initialize ---
+xhat = zeros(order, N);
+P = eye(order) * config.initPScale;
+
+% Initialize state from first samples
+xhat(1,1) = x(1);
+if N >= 2
+    xhat(2,1) = (x(2)-x(1))/dt; % crude derivative init
+end
+if order == 3 && N >= 3
+    xhat(3,1) = ((x(3)-x(2)) - (x(2)-x(1))) / (dt^2);
+end
+
+innov = nan(1,N);
+S = nan(1,N);
+
+% Store forward pass for RTS
+xpred_store = zeros(order,N);
+Ppred_store = zeros(order,order,N);
+P_store     = zeros(order,order,N);
+
+% --- Forward Kalman filter ---
+for k = 2:N
+    % Predict
+    xpred = A * xhat(:,k-1);
+    Ppred = A * P * A' + Q;
+
+    xpred_store(:,k) = xpred;
+    Ppred_store(:,:,k) = Ppred;
+
+    zk = x0(k);
+    hasMeas = ~(isnan(zk) && strcmp(config.nanPolicy,'omit'));
+
+    if hasMeas
+        % Use detrended measurement if detrending enabled, else raw
+        z = x(k);
+
+        % Update
+        y = z - H*xpred;             % innovation
+        Sk = H*Ppred*H' + R;         % innovation variance (scalar)
+        K = (Ppred*H') / Sk;         % Kalman gain
+
+        xnew = xpred + K*y;
+        Pnew = (eye(order) - K*H) * Ppred;
+
+        innov(k) = y;
+        S(k) = Sk;
+    else
+        xnew = xpred;
+        Pnew = Ppred;
+    end
+
+    xhat(:,k) = xnew;
+    P = Pnew;
+    P_store(:,:,k) = P;
+    if k == 2
+        fprintf('sigmaMeas=%.3g, R=%.3g\n', sigmaMeas, R);
+        fprintf('Sk=%.3g, Kpos=%.3g\n', Sk, K(1));
+    end
+end
+
+% --- RTS smoother (optional) ---
+xs = xhat;
+Ps = P_store;
+if config.useRTS
+    for k = N-1:-1:1
+        Pk = P_store(:,:,k);
+        Ppred_next = Ppred_store(:,:,k+1);
+        if all(Ppred_next(:)==0)
+            continue
+        end
+        G = (Pk*A') / Ppred_next; % smoother gain
+        xs(:,k) = xhat(:,k) + G*(xs(:,k+1) - xpred_store(:,k+1));
+        Ps(:,:,k) = Pk + G*(Ps(:,:,k+1) - Ppred_next)*G';
+    end
+end
+
+% --- Outputs ---
+out = struct();
+out.params = struct('A',A,'H',H,'Q',Q,'R',R,'dt',dt,'fs',fs,'order',order, ...
+                    'sigmaMeas',sigmaMeas);
+
+out.x_filt = xhat(1,:).';
+out.x_smooth = xs(1,:).';
+out.innov = innov(:);
+out.S = S(:);
+
+if order >= 2
+    out.xdot_filt = xhat(2,:).';
+    out.xdot_smooth = xs(2,:).';
+end
+if order == 3
+    out.xddot_filt = xhat(3,:).';
+    out.xddot_smooth = xs(3,:).';
+end
+obj.KF_HrSignal = out.x_smooth(:);
+end
+
 function [delay_sec_normal,sign]= FindMechDelay(obj)
     %first, the simplest method - XCORR on the HR peaks times of different
     %signals and ECG

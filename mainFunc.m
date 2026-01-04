@@ -23,14 +23,14 @@ if b_reset_filter
 end
 
 
-b_CLEAR_OLD = true;
+b_CLEAR_OLD = false;
 b_plot_ALL = true;
 
 
 
 
-IDrange = 1:5 ; %11:12;   
-scenarios= {"Resting","Valsalva","Apnea","TiltDown","TiltUp"}; %["Resting","Valsalva","Apnea","Tilt-down","Tilt-up"]
+IDrange = 3 ; %11:12;   
+scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
@@ -125,6 +125,8 @@ for indx = 1:length(IDrange)
         dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
         dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
         filteringTime = toc;         
+        dataFull{indx,sz}.kalmanSmoothRadarDist();
+      %  dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
      %% 6. time analysis
        
         dataFull{indx,sz}.FindPeaks(); 
@@ -134,9 +136,21 @@ for indx = 1:length(IDrange)
         
 
         [peaksDelay,sign] = dataFull{indx,sz}.FindMechDelay();
+        
         %finds the delay between the  peaks and ECG
         dataFull{indx,sz}.radar_dist = sign.* dataFull{indx,sz}.radar_dist ;
-
+        if(sign==-1 || peaksDelay<0.25 || peaksDelay > 0.45)
+             tic
+            dataFull{indx,sz}.radar_dist = -1.* dataFull{indx,sz}.radar_dist ;
+        
+            dataFull{indx,sz}.DownSampleRadar(resampleFS);
+            dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
+            dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
+            filteringTime = toc;         
+            dataFull{indx,sz}.kalmanSmoothRadarDist();
+           % dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
+    
+        end
         dataFull{indx,sz}.FindPeaks(); 
         % generates peaks: HrPeaks, RrPeaks , ecgPeaks ,Rrpeaks_gt
         % based solely on findPeaks() and pan_tompkin 
@@ -166,10 +180,10 @@ for indx = 1:length(IDrange)
 
         dataFull{indx,sz}.timeFitting(); %THIS RETURNS CORRELATED HR
       
-        % % % dataFull{indx,sz}.plot_examples();
-        % % % %%
-        % % % % show all results with CorrGt and CorrKalmanHr
-        % % % 
+        dataFull{indx,sz}.plot_examples();
+        %%
+        % show all results with CorrGt and CorrKalmanHr
+
         dataFull{indx,sz}.CalcError(dataFull{indx,sz}.CorrKalmanHr_on_gt_time);
         % % % dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
         % % %    'HR after Kalman & time fit',...
