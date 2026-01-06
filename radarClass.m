@@ -12,7 +12,14 @@ classdef radarClass < handle
         radar_dist
         ecg_gt
         resp_gt
-        
+        %statistics
+        HrEstVar
+        HrEstRoughNorm
+        IQRadCV
+        DistSNR_HR_dB
+        DistPeakToFloor
+        DistHrPeakHz
+
         %proccessed signals
         radar_decimated
         HrSignal
@@ -199,6 +206,112 @@ classdef radarClass < handle
             obj.HrGtEst = 60 ./  diff(obj.ecgPeaks); 
             obj.RrEst = 60 ./  diff(obj.RrPeaks);
             obj.RrGtEst = 60 ./ diff(obj.Rrpeaks_gt);            
+        end
+        function ComputePreFilterStats(obj)
+            % ComputePreFilterStats
+            % Computes statistics available BEFORE running the Kalman filter.
+            % Stores results in:
+            %   HrEstVar, HrEstRoughNorm, IQRadCV, DistHrPeakHz, DistSNR_HR_dB, DistPeakToFloor
+    
+            % ---------- HR estimate stats (from HrEst) ----------
+            obj.HrEstVar = NaN;
+            obj.HrEstRoughNorm = NaN;
+            
+            if ~isempty(obj.HrEst)
+                hr = obj.HrEst(:);
+                hr = hr(~isnan(hr) & isfinite(hr));
+                if numel(hr) >= 5
+                    obj.HrEstVar = var(hr, 1); % population variance (stable for comparisons)
+                    rough = mean(abs(diff(hr)));
+                    obj.HrEstRoughNorm = rough / max(mean(hr), eps);
+                end
+            end
+            
+            % ---------- Radar IQ "radial" dispersion stats ----------
+            % Uses raw radar_i/q if present, otherwise radar_decimated if it's complex
+            obj.IQRadCV  = NaN;
+            
+            
+            [ri, rq] = getIQ(obj);
+            if ~isempty(ri) && ~isempty(rq)
+                ri = ri(:); rq = rq(:);
+                n = min(numel(ri), numel(rq));
+                ri = ri(1:n); rq = rq(1:n);
+            
+                % Robust center
+                ci = median(ri, 'omitnan');
+                cq = median(rq, 'omitnan');
+            
+                rad = hypot(ri - ci, rq - cq);
+                rad = rad(~isnan(rad) & isfinite(rad));
+            
+                if numel(rad) >= 20
+                    medr = median(rad);
+                    iqr_r = iqr(rad);
+                    obj.IQRadCV = iqr_r / max(medr, eps);
+            
+                    % If you also want MAD:
+                    % obj.IQRadMAD = mad(rad, 1); % 1 => normalized by median
+                end
+            end
+            
+            % ---------- Spectral "dist" metrics on HrSignal ----------
+            % DistHrPeakHz: peak frequency (Hz) in HR band
+            % DistSNR_HR_dB: simple peak-vs-floor dB measure
+            % DistPeakToFloor: linear peak/floor
+            obj.DistHrPeakHz   = NaN;
+            obj.DistSNR_HR_dB  = NaN;
+            obj.DistPeakToFloor = NaN;
+            
+            if ~isempty(obj.HrSignal) && ~isempty(obj.fs_new) && obj.fs_new > 0
+                x = obj.HrSignal(:);
+                x = x(~isnan(x) & isfinite(x));
+            
+                if numel(x) >= 128
+                    fs = obj.fs_new;
+            
+                    % Detrend and window
+                    x = x - mean(x);
+                    w = hann(numel(x));
+                    X = abs(fft(x .* w));
+                    f = (0:numel(X)-1).' * (fs/numel(X));
+            
+                    % HR band (Hz): 0.7–3.0 ~ 42–180 bpm (adjust if you want)
+                    f1 = 0.7; f2 = 3.0;
+                    band = (f >= f1) & (f <= f2);
+            
+                    if any(band)
+                        Xb = X(band);
+                        fb = f(band);
+            
+                        [pk, idxPk] = max(Xb);
+                        obj.DistHrPeakHz = fb(idxPk);
+            
+                        % Floor estimate: median in band (robust)
+                        floorVal = median(Xb, 'omitnan');
+            
+                        obj.DistPeakToFloor = pk / max(floorVal, eps);
+                        obj.DistSNR_HR_dB   = 20*log10(obj.DistPeakToFloor); % amplitude ratio -> dB
+                    end
+                end
+            end
+    end
+
+        % ---- helper inside class (put under methods(Access=private) if you prefer) ----
+        function [ri, rq] = getIQ(obj)
+            ri = [];
+            rq = [];
+            if ~isempty(obj.radar_i) && ~isempty(obj.radar_q)
+                ri = obj.radar_i;
+                rq = obj.radar_q;
+                return;
+            end
+            % If radar_decimated is complex, split it
+            if ~isempty(obj.radar_decimated) && ~isreal(obj.radar_decimated)
+                z = obj.radar_decimated;
+                ri = real(z);
+                rq = imag(z);
+            end
         end
 
         function [Q,R] = ProduceKalmanCoeff(obj)
@@ -1153,7 +1266,157 @@ end
             fprintf('Mean Absolute Error (MAE) -> RAW: %.2f | Fitted: %.2f\n', obj.maeRaw, obj.maeFitted);
             fprintf('Mean Squared Error (MSE)  -> RAW: %.2f | Fitted: %.2f\n', obj.mseRaw, obj.mseFitted);
             fprintf('------------------------------------------------\n');
+       end
+  %% NEW FUNCTION
+  function PlotHrCovAndBA(obj)
+% PlotHrCovAndBA
+% Creates two figures:
+%   (1) 2x2 subplots: "CovDiag" style plots for:
+%       - HrEst vs HrGtEst
+%       - HrEstAfterMedian vs HrGtEst
+%       - HrEstAfterKalman vs HrGtEst
+%   (2) 2x2 subplots: Bland-Altman plots for the same three comparisons
+%
+% Notes:
+%   - GT is obj.HrGtEst (as requested)
+%   - Vectors are cut to the same length and NaNs are removed consistently.
+
+    gt = obj.HrGtEst;
+
+    sigs = {obj.HrEst, obj.HrEstAfterMedian, obj.HrEstAfterKalman};
+    names = {'Raw HR vs GT', 'Median HR vs GT', 'Kalman HR vs GT'};
+
+    % ===================== FIGURE 1: CovDiag-style =====================
+    figure('Name', sprintf('CovDiag HR vs GT | ID %s | %s', string(obj.ID), string(obj.sceneario)));
+
+    for k = 1:3
+        subplot(2,2,k);
+
+        est = sigs{k};
+        a = est(:); b = gt(:);
+
+        n = min(numel(a), numel(b));
+        a = a(1:n); b = b(1:n);
+
+        v = isfinite(a) & isfinite(b) & ~isnan(a) & ~isnan(b);
+        a = a(v); b = b(v);
+
+        if numel(a) < 8
+            axis off;
+            title([names{k} ' (insufficient data)']);
+            continue;
         end
+
+        % Scatter
+        plot(b, a, '.', 'MarkerSize', 8); hold on; grid on;
+        xlabel('GT HR'); ylabel('Est HR');
+        title(names{k});
+
+        % y=x reference line
+        mn = min([a; b]);
+        mx = max([a; b]);
+        plot([mn mx], [mn mx], 'k--', 'LineWidth', 1);
+
+        % --- Covariance ellipse (1-sigma) in (GT,Est) space ---
+        % Data matrix: columns [GT, Est]
+        X = [b, a];
+        mu = mean(X, 1);
+        C  = cov(X, 1); % population cov
+
+        % Eigen-decomp
+        [V,D] = eig(C);
+        d = diag(D);
+        [d,idx] = sort(d, 'descend');
+        V = V(:,idx);
+
+        % 1-sigma ellipse
+        t = linspace(0, 2*pi, 200);
+        circ = [cos(t); sin(t)];
+        A = V * diag(sqrt(max(d,0)));   % sqrt eigenvalues
+        ell = (A * circ).';
+        ell(:,1) = ell(:,1) + mu(1);
+        ell(:,2) = ell(:,2) + mu(2);
+
+        plot(ell(:,1), ell(:,2), 'LineWidth', 1.5);
+
+        % --- Basic stats annotation ---
+        r = corr(a, b);
+        diffv = a - b;
+        bias = mean(diffv);
+        rmse = sqrt(mean(diffv.^2));
+
+        txt = sprintf('N=%d  r=%.3f\nbias=%.2f  rmse=%.2f', numel(a), r, bias, rmse);
+        xlim([mn mx]); ylim([mn mx]);
+        text(mn + 0.02*(mx-mn), mx - 0.10*(mx-mn), txt, 'FontSize', 9, 'BackgroundColor', 'w');
+        hold off;
+    end
+
+    subplot(2,2,4);
+    axis off;
+    text(0,0.85, sprintf('ID: %s', string(obj.ID)), 'FontWeight','bold');
+    text(0,0.65, sprintf('Scenario: %s', string(obj.sceneario)));
+    text(0,0.45, 'CovDiag-style: scatter + y=x + 1σ covariance ellipse');
+    text(0,0.25, 'All compared to GT = HrGtEst');
+    text(0,0.05, 'Vectors trimmed to same length; NaNs removed');
+
+    % ===================== FIGURE 2: Bland-Altman =====================
+    figure('Name', sprintf('Bland-Altman HR vs GT | ID %s | %s', string(obj.ID), string(obj.sceneario)));
+
+    for k = 1:3
+        subplot(2,2,k);
+
+        est = sigs{k};
+        a = est(:); b = gt(:);
+
+        n = min(numel(a), numel(b));
+        a = a(1:n); b = b(1:n);
+
+        v = isfinite(a) & isfinite(b) & ~isnan(a) & ~isnan(b);
+        a = a(v); b = b(v);
+
+        if numel(a) < 8
+            axis off;
+            title([names{k} ' (insufficient data)']);
+            continue;
+        end
+
+        m  = 0.5*(a + b);      % mean
+        d  = (a - b);          % difference (Est - GT)
+        md = mean(d);
+        sd = std(d, 0);
+
+        loa1 = md - 1.96*sd;
+        loa2 = md + 1.96*sd;
+
+        plot(m, d, '.', 'MarkerSize', 8); hold on; grid on;
+        yline(md,  'k-',  'LineWidth', 1.5);
+        yline(loa1,'k--', 'LineWidth', 1.0);
+        yline(loa2,'k--', 'LineWidth', 1.0);
+
+        xlabel('Mean (Est, GT)'); ylabel('Est - GT');
+        title(names{k});
+
+        txt = sprintf('N=%d\nmean=%.2f\nLoA=[%.2f, %.2f]', numel(a), md, loa1, loa2);
+        xm = min(m); xM = max(m);
+        ym = min(d); yM = max(d);
+        text(xm + 0.02*(xM-xm), yM - 0.10*(yM-ym), txt, 'FontSize', 9, 'BackgroundColor', 'w');
+
+        hold off;
+    end
+
+    subplot(2,2,4);
+    axis off;
+    text(0,0.85, sprintf('ID: %s', string(obj.ID)), 'FontWeight','bold');
+    text(0,0.65, sprintf('Scenario: %s', string(obj.sceneario)));
+    text(0,0.45, 'Bland-Altman: (Est-GT) vs mean, with mean & ±1.96σ');
+    text(0,0.25, 'All compared to GT = HrGtEst');
+    text(0,0.05, 'Vectors trimmed to same length; NaNs removed');
+
+end
+
+
+
+
         %% Save Figures
        function [] = saveFigures(obj, figHandles, saveDir)
              % Set default directory if not provided

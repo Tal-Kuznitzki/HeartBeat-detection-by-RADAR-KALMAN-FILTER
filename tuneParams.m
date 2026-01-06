@@ -23,9 +23,9 @@ P_fixed = 5.0; % Fixed Covariance
 
 % --- 2. ULTRA-FINE GRID ---
 % Q: Process Noise (0.001 to 3000)
-q_low = logspace(-3, -1, 15);       % 0.001 -> 0.1
+q_low = logspace(-2, 1, 15);       % 0.001 -> 0.1
 q_mid = logspace(log10(0.15), log10(200), 50); % Sweet spot
-q_high = linspace(250, 3000, 20);
+q_high = linspace(50, 150, 20);
 Q_list = unique([q_low, q_mid, q_high]);
 
 % R: Measurement Noise (1 to 10000)
@@ -79,7 +79,7 @@ for i = 1:nRows
             local_best_corr = -2;
 
             % Progress bar for this file & filter type
-            hWait = waitbar(0, sprintf('%s-%s (%s)', ID_str, Scen_str, currentType));
+           % hWait = waitbar(0, sprintf('%s-%s (%s)', ID_str, Scen_str, currentType));
 
             % --- 5. GRID SEARCH LOOP ---
             for q_idx = 1:length(Q_list)
@@ -128,9 +128,9 @@ for i = 1:nRows
                     end
                 end
                 % Update progress bar
-                waitbar(q_idx/length(Q_list), hWait);
+%                waitbar(q_idx/length(Q_list), hWait);
             end
-            close(hWait);
+    %        close(hWait);
         end
 
         % --- 6. UPDATE OBJECT & SAVE RESULTS ---
