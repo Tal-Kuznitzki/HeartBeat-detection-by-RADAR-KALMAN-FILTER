@@ -1195,7 +1195,7 @@ end
          legend('show', 'Location', 'best');
 
          % Subplot 2
-         ax_hr(2) = subplot(3,1,2); hold on; grid on;
+         ax_hr(2) = subplot(3,1,3); hold on; grid on;
          title('HR after Kalman (time fitted) vs GT (time fitted)');
           if ~isempty(obj.CorrKalmanHr_on_gt_time)
              plot(obj.CorrKalmanHr_on_gt_time, 'b','DisplayName', 'Radar Est after Kalman(time fitted)');
@@ -1206,7 +1206,7 @@ end
          legend('show', 'Location', 'best');
 
          %Subplot 3
-         ax_hr(3) = subplot(3,1,3); hold on; grid on;
+         ax_hr(3) = subplot(3,1,2); hold on; grid on;
          title('HR after Median vs GT (time fitted)');
          if ~isempty(obj.CorrMedianHr_on_gt_time)
              plot(obj.CorrMedianHr_on_gt_time, 'b','DisplayName', 'Radar Est After Median');

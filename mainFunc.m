@@ -29,8 +29,8 @@ b_plot_ALL = true;
 
 
 
-IDrange = 1 ; %11:12;   
-scenarios= {"Resting","Valsalva","Apnea","TiltDown","TiltUp"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+IDrange = [1,5,27] ; %11:12;   
+scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
@@ -172,7 +172,7 @@ for indx = 1:length(IDrange)
 
         [Q,R] = dataFull{indx,sz}.ProduceKalmanCoeff(); 
       
-
+        
         dataFull{indx,sz}.KalmanFilterBeats(Q,R) %Q=35 R=112
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
         % generates HrPeaksAfterKalman and HrEstAfterKalman
@@ -181,18 +181,18 @@ for indx = 1:length(IDrange)
 
         dataFull{indx,sz}.timeFitting(); %THIS RETURNS CORRELATED HR
       
-        %%dataFull{indx,sz}.plot_examples();
+        dataFull{indx,sz}.plot_examples();
         %%
         % show all results with CorrGt and CorrKalmanHr
 
         dataFull{indx,sz}.CalcError(dataFull{indx,sz}.CorrKalmanHr_on_gt_time);
-        dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
-           'HR after Kalman & time fit',...
-            dataFull{indx,sz}.CorrKalmanHr_on_gt_time,...
-            dataFull{indx,sz}.HrPeaksAfterKalman,...
-            dataFull{indx,sz}.corrtime,... %time vector after fitting
-            'plot_RrSignals',false, ...
-            'plot_RrRates',false);
+        % % % dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
+        % % %    'HR after Kalman & time fit',...
+        % % %     dataFull{indx,sz}.CorrKalmanHr_on_gt_time,...
+        % % %     dataFull{indx,sz}.HrPeaksAfterKalman,...
+        % % %     dataFull{indx,sz}.corrtime,... %time vector after fitting
+        % % %     'plot_RrSignals',false, ...
+        % % %     'plot_RrRates',false);
 
        statisticsAPMed.updateTable...
        (dataFull{indx,sz}.CorrKalmanHr_on_gt_time,dataFull{indx,sz}.CorrGt,indx,sz); 
