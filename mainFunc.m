@@ -11,7 +11,7 @@
 % 9. Clean up (close figures)
 
 % --- STEP 1: Global Initialization (Run only once) ---
-b_CLEAN_START = true;
+b_CLEAN_START = false;
 b_reset_filter = false;
 if b_CLEAN_START
     clc; 
@@ -24,13 +24,19 @@ end
 
 
 b_CLEAR_OLD = false;
-b_plot_ALL = true;
+b_plot_ALL = false;
 
 
 
 
-IDrange = [1,5,27] ; %11:12;   
+
+IDrange = [5,27] ; %11:12;  
+IDrange = 1:30;
+%IDrange = 27; 
 scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios = {"Resting","TiltUp"};
+scenarios={"Resting","Valsalva","Apnea","TiltDown","TiltUp"};
+%scenarios= {"TiltDown"};
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
@@ -125,7 +131,7 @@ for indx = 1:length(IDrange)
         dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
         dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
         filteringTime = toc;         
-        dataFull{indx,sz}.kalmanSmoothRadarDist();
+        dataFull{indx,sz}.kalmanSmoothRadarDist(); //WHY ? 
       %  dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
      %% 6. time analysis
        
@@ -171,29 +177,47 @@ for indx = 1:length(IDrange)
 
 
         [Q,R] = dataFull{indx,sz}.ProduceKalmanCoeff(); 
-      
-        
-        dataFull{indx,sz}.KalmanFilterBeats(Q,R) %Q=35 R=112
+        Q
+        R
+        [q_auto, r_auto] = dataFull{indx,sz}.EstimateKalmanCoeffs('BiState');
+        % Apply them
+        q_auto
+        r_auto
+        dataFull{indx,sz}.kalmanFilterBeats(Q,R) 
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
         % generates HrPeaksAfterKalman and HrEstAfterKalman
 
+        % or use Bistate - 
+        %obj.kalmanFilterBistate(q_auto, r_auto);
+
+
+
         %[medDelay, kalDelay] = dataFull{indx,sz}.FindMechanicalDelay();
 
-        dataFull{indx,sz}.timeFitting(); %THIS RETURNS CORRELATED HR
+        dataFull{indx,sz}.timeFitting(); %generates CORRELATED HR
       
-        dataFull{indx,sz}.plot_examples();
+         % % dataFull{indx,sz}.plot_examples();
         %%
         % show all results with CorrGt and CorrKalmanHr
+    
 
+        
         dataFull{indx,sz}.CalcError(dataFull{indx,sz}.CorrKalmanHr_on_gt_time);
-        % % % dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
-        % % %    'HR after Kalman & time fit',...
-        % % %     dataFull{indx,sz}.CorrKalmanHr_on_gt_time,...
-        % % %     dataFull{indx,sz}.HrPeaksAfterKalman,...
-        % % %     dataFull{indx,sz}.corrtime,... %time vector after fitting
-        % % %     'plot_RrSignals',false, ...
-        % % %     'plot_RrRates',false);
 
+
+        %dataFull{indx,sz}.PlotHrCovAndBA();
+
+        % % dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
+        % %    'HR after Kalman & time fit',...
+        % %     dataFull{indx,sz}.CorrKalmanHr_on_gt_time,...
+        % %     dataFull{indx,sz}.HrPeaksAfterKalman,...
+        % %     dataFull{indx,sz}.corrtime,... %time vector after fitting
+        % %     'plot_RrSignals',false, ...
+        % %     'plot_RrRates',false);
+
+
+
+   
        statisticsAPMed.updateTable...
        (dataFull{indx,sz}.CorrKalmanHr_on_gt_time,dataFull{indx,sz}.CorrGt,indx,sz); 
        % for q= 0.5:0.25:15
@@ -226,14 +250,32 @@ statisticsAPMed.exportExcel();
 if ~exist(saveBaseDir, 'dir')
     mkdir(saveBaseDir);
 end
-
 matFileName = fullfile(saveBaseDir, 'Processed_Data_Full.mat');
 
 fprintf('------------------------------------------------\n');
-fprintf('Processing complete. Converting objects to structs and saving...\n');
+fprintf('Preparing to save .mat file...\n');
 
-% Convert objects to structs
+% --- OPTIMIZATION: Clear heavy raw data to fix the "Hang" ---
+fprintf('Clearing raw radar signals from memory to speed up saving...\n');
+for i = 1:numel(dataFull)
+    if ~isempty(dataFull{i})
+        % Remove the massive raw vectors. 
+        % We only need the processed Heart Rate estimates and stats.
+        dataFull{i}.radar_i = [];
+        dataFull{i}.radar_q = [];
+        dataFull{i}.radar_dist = []; 
+        
+        % If you have other huge intermediate vectors, clear them too:
+        % dataFull{i}.radar_decimated = []; 
+    end
+end
+fprintf('Raw data cleared.\n');
 
-save(matFileName, 'dataFull', 'IDrange', 'scenarios', '-v7.3');
+fprintf('Saving variable "dataFull" to %s...\n', matFileName);
+fprintf('This might still take a moment, but should not hang.\n');
+
+% Save
+%save(matFileName, 'dataFull', 'IDrange', 'scenarios', '-v7.3');
+
 fprintf('Successfully saved data to:\n %s\n', matFileName);
 fprintf('------------------------------------------------\n');

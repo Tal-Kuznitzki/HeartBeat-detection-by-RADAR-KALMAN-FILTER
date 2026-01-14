@@ -316,7 +316,6 @@ classdef radarClass < handle
 
         function [Q,R] = ProduceKalmanCoeff(obj)
             variance = var(obj.HrEst);
-            
             variance = max(variance, 1e-4);   % safety floor
             scenario = obj.sceneario;
             R= 19.31;
@@ -379,6 +378,7 @@ classdef radarClass < handle
         obj.HrEstAfterMedian = hr_replaced_with_median_in_outliers;
         obj.HrGtEstAfterMedian = gt_replaced_with_median_in_outliers;
         end
+
         function [] = CalcError(obj,hrToCompare)
             min_len = min(length(obj.CorrGt), length(hrToCompare));
             v1=hrToCompare(1:min_len);
@@ -432,122 +432,111 @@ function timeFitting(obj)
 end
 
 %% KALMAN 
-function KalmanFilterBeats(obj,Q,R_base)
-    % Improved Kalman Filter for Heart Rate
-    % 1. Robust against NaN/Empty inputs.
-    % 2. Uses Phase-Locking to prevent drift.
-    % 3. Filters Heart Rate (BPM) while preserving beat alignment.
-
-    % ---- 1. Guards: Check for valid input ----
-    % We need at least 2 peaks to calculate an interval
-    if isempty(obj.HrPeaks) || length(obj.HrPeaks) < 2
-        obj.HrPeaksAfterKalman = obj.HrPeaks;
-        obj.HrEstAfterKalman = []; 
-        warning('Kalman:InputSparse', 'Input HrPeaks too sparse (<2). Returning original.');
-        return;
-    end
-
-    fs = obj.fs_new;
-    if isempty(fs) || fs == 0, fs = 100; end % Safety fallback
-
-    % Prepare Input Data
-    raw_pk_times = unique(sort(obj.HrPeaks(:)), 'stable');
-    ibi_meas = diff(raw_pk_times);
-    hr_meas = 60 ./ ibi_meas; 
-
-    % ---- 2. Kalman Initialization (State: [HR]) ----
-    % We use a 1-state Random Walk model. Velocity state (HRdot) 
-    % often overshoots on radar data due to sudden noise.
-
-    % Find a valid starting HR (median of first few valid beats)
-    valid_mask = (hr_meas > 40 & hr_meas < 200 & isfinite(hr_meas));
-    valid_data = hr_meas(valid_mask);
-
-    if isempty(valid_data)
-        x = 75; % Fallback if signal is 100% garbage
+function kalmanFilterBeats(obj, Q, R)
+    % Standard 1-State Kalman Filter (Tracking HR Position)
+    
+    % --- 1. Setup Time Step ---
+    if isempty(obj.fs_new) || isnan(obj.fs_new)
+        fs = 1; 
     else
-        x = median(valid_data(1:min(5, end)));
+        fs = obj.fs_new;
     end
-    P = 65.0; 
-    if(nargin<3)
-                  % Initial uncertainty 10
-        Q = 35;          % Process noise (Standard deviation of beat-to-beat change) oldval 0.5
-        R_base = 112;     % Measurement noise (Trust in the radar peak location) oldval 5 
+    dt = 1 / fs;
+
+    % --- 2. Define Model ---
+    A = 1; 
+    H = 1; 
+    % Process Noise scales with dt
+    Q_mat = Q * dt; 
+    R_val = R;
+
+    % --- 3. Initialize State ---
+    meas = obj.HrEstAfterMedian; 
+    
+    % Robust Start: Find first non-NaN
+    firstIdx = find(~isnan(meas), 1);
+    if isempty(firstIdx)
+        x = 60; 
+    else
+        x = meas(firstIdx);
+    end
+    P = 10; 
+    
+    % --- 4. Main Loop (Forward Filter) ---
+    N = length(meas);
+    xh = nan(N, 1); 
+    
+    for i = 1:N
+        % Prediction
+        x = A * x;
+        P = A * P * A' + Q_mat;
         
+        % Update
+        z = meas(i);
+        if ~isnan(z)
+            K = P * H' / (H * P * H' + R_val);
+            x = x + K * (z - H * x);
+            P = (1 - K * H) * P;
+        end
+        xh(i) = x;
     end
     
-    hr_hat = nan(size(hr_meas));
+    obj.HrEstAfterKalman = xh;
 
-    % ---- 3. Filtering Loop ----
-    for k = 1:length(hr_meas)
-        z = hr_meas(k);
-
-        % Predict
-        x_pred = x;
-        P_pred = P + Q;
-
-        % Validate Measurement
-        % 1. Is it physically possible? (40-200 BPM)
-        % 2. Is it within the statistical gate? (Mahalanobis distance)
-        is_physio = (z >= 40 && z <= 200 && isfinite(z));
-
-        innovation = z - x_pred;
-        S = P_pred + R_base;
-
-        % Gate: If error > 3 standard deviations, it's an outlier (or missed beat)
-        if (innovation^2) > (9 * S) 
-            gate_passed = false;
-        else
-            gate_passed = true;
+    % --- 5. PEAK RECONSTRUCTION (Phase Integration) ---
+    
+    % A. Prepare Smooth Signal (Fill gaps for integration)
+    hr_clean = fillmissing(xh, 'nearest'); 
+    
+    % B. Convert BPM -> Hz
+    freq_hz = hr_clean / 60;
+    
+    % C. Integrate to get "Unadjusted Phase" (Beat Count starting at 0)
+    raw_phase = cumsum(freq_hz * dt);
+    
+    % D. PHASE ALIGNMENT (The Fix)
+    % We need to sync the synthetic phase with reality. 
+    % We use the FIRST valid raw peak as the "Anchor".
+    
+    phase_offset = 0;
+    
+    % Check if we have raw peaks to align to
+    if ~isempty(obj.HrPeaks)
+        % Get the time of the first raw peak
+        first_peak_time = obj.HrPeaks(1);
+        
+        % Convert time to index
+        anchor_idx = round(first_peak_time * fs);
+        
+        if anchor_idx > 0 && anchor_idx <= length(raw_phase)
+            % Get the accumulated phase at that specific moment
+            phase_at_anchor = raw_phase(anchor_idx);
+            
+            % We want the phase at the anchor to be exactly an integer (e.g., 1.0)
+            % So: raw_phase + offset = 1.0
+            phase_offset = 1.0 - phase_at_anchor;
         end
-        % Update Step
-        if is_physio && gate_passed
-            K = P_pred / S;
-            x = x_pred + K * innovation;
-            P = (1 - K) * P_pred;
-        else
-            % Reject measurement, trust model history
-            x = x_pred; 
-            P = P_pred; 
-        end
-
-        hr_hat(k) = x;
     end
-
-    obj.HrEstAfterKalman = hr_hat;
-
-    % ---- 4. Phase-Locked Reconstruction ----
-    % Prevents the "drifting away" issue of simple cumsum.
-    % We predict where the next beat *should* be. If a raw peak is close,
-    % we snap to it. If not, we use the prediction (smoothing).
-
-    rec_peaks = zeros(length(hr_hat)+1, 1);
-    rec_peaks(1) = raw_pk_times(1); % Anchor to first peak
-    curr_time = raw_pk_times(1);
-
-    for k = 1:length(hr_hat)
-        % Predict IBI based on filtered HR
-        pred_ibi = 60 / hr_hat(k);
-        next_pred = curr_time + pred_ibi;
-
-        % Check if a raw peak exists near this prediction
-        % Window: +/- 20% of the beat interval
-        window = 0.2 * pred_ibi;
-        [min_err, idx] = min(abs(raw_pk_times - next_pred));
-
-        if min_err < window
-            % Found a matching raw peak -> Snap to it (Corrects Phase)
-            next_time = raw_pk_times(idx);
-        else
-            % No match -> Use Kalman prediction (Smooths over noise/misses)
-            next_time = next_pred;
-        end
-        rec_peaks(k+1) = next_time;
-        curr_time = next_time;
-    end
-
-    obj.HrPeaksAfterKalman = rec_peaks;
+    
+    % E. Apply Offset
+    adjusted_phase = raw_phase + phase_offset;
+    
+    % F. Find Peaks (Integer Crossings)
+    % A beat happens when the phase counter ticks over a whole number
+    % Logic: If floor(current) > floor(previous), we crossed an integer.
+    
+    % Use logical indexing for speed and precision
+    phase_floor = floor(adjusted_phase);
+    % Pad with the first value to maintain vector length for 'diff'
+    peak_mask = [0; diff(phase_floor)] >= 1; 
+    
+    % Find indices
+    peakIndices = find(peak_mask);
+    
+    % G. Convert to Time
+    obj.HrPeaksAfterKalman = peakIndices * dt;
 end
+
 function out = kalmanSmoothRadarDist(obj, config)
 % kalmanSmoothRadarDist
 % Kalman smoothing for raw radar_dist at high fs (e.g. 2000 Hz).
@@ -780,6 +769,77 @@ end
 obj.KF_HrSignal = out.x_smooth(:);
 end
 
+function kalmanFilterBistate(obj, Q, R)
+    % Bi-State Kalman Filter (Tracking HR and Velocity)
+    
+    % --- 1. Setup Time Step ---
+    if isempty(obj.fs_new) || isnan(obj.fs_new)
+        fs = 1; 
+    else
+        fs = obj.fs_new;
+    end
+    dt = 1 / fs;
+    
+    % --- 2. Define Model (Constant Velocity) ---
+    % State vector: [Position (HR); Velocity (dHR/dt)]
+    A = [1, dt; 
+         0, 1];
+    H = [1, 0];
+    
+    % Process Noise Matrix (Discrete White Noise Acceleration)
+    % This makes the Q parameter physically meaningful
+    Q_mat = Q * [(dt^3)/3, (dt^2)/2; 
+                 (dt^2)/2,  dt];
+    R_val = R;
+
+    % --- 3. Initialize State ---
+    meas = obj.HrEstAfterMedian;
+    firstIdx = find(~isnan(meas), 1);
+    
+    if isempty(firstIdx)
+        x = [60; 0]; 
+    else
+        x = [meas(firstIdx); 0]; 
+    end
+    P = eye(2) * 10; 
+    
+    % --- 4. Main Loop ---
+    N = length(meas);
+    xh = nan(N, 1); 
+    
+    for i = 1:N
+        % Prediction
+        x = A * x;
+        P = A * P * A' + Q_mat;
+        
+        % Update
+        z = meas(i);
+        if ~isnan(z)
+            S = H * P * H' + R_val;
+            K = (P * H') / S;
+            x = x + K * (z - H * x);
+            P = (eye(2) - K * H) * P;
+        end
+        xh(i) = x(1); % Extract only the HR Position
+    end
+    
+    obj.HrEstAfterKalman = xh;
+
+    % --- 5. PEAK RECONSTRUCTION ---
+    % Integrate the smoothed HR trajectory to find beat locations
+    hr_clean = fillmissing(xh, 'nearest');
+    
+    % BPM -> Hz -> Phase
+    freq_hz = hr_clean / 60;
+    phase = cumsum(freq_hz * dt);
+    
+    % Find zero crossings of the phase modulus (integer crossings)
+    peakIndices = find(diff(floor(phase)) >= 1);
+    
+    % Store peaks in Seconds
+    obj.HrPeaksAfterKalman = peakIndices * dt;
+end
+
 function [delay_sec_normal,sign]= FindMechDelay(obj)
     %first, the simplest method - XCORR on the HR peaks times of different
     %signals and ECG
@@ -836,97 +896,269 @@ function [delay_sec_normal,sign]= FindMechDelay(obj)
 
 
 end
-function KalmanSmooth_BiDir(obj, Q_in, R_in, P_in)
-    %KalmanSmooth_BiDir (Zero-Lag Smoother)
-    %Runs the Kalman filter Forward, then flips the data and runs it Backward.
-   % The average of both passes removes phase delay, massively improving correlation.
-
-    %1. Parameter Handling
-    if nargin < 2
-        Q = obj.param_Q; R = obj.param_R; P = obj.param_P;
-    else
-        Q = Q_in; R = R_in; P = P_in;
+function [bestQ, bestR] = EstimateKalmanCoeffs(obj, filterType)
+    % ESTIMATEKALMANCOEFFS Internally estimates Q and R based on signal stats.
+    %
+    % Usage:
+    %   [q, r] = obj.EstimateKalmanCoeffs('Standard');
+    %   [q, r] = obj.EstimateKalmanCoeffs('BiState');
+    
+    % --- 1. Check Data Availability ---
+    if isempty(obj.HrEstAfterMedian) || all(isnan(obj.HrEstAfterMedian))
+        warning('EstimateKalmanCoeffs:NoData', 'No valid median data. Using defaults.');
+        bestQ = 50; bestR = 10; return;
     end
 
-    %2. Safety Guards
-    if isempty(obj.HrPeaks) || length(obj.HrPeaks) < 3
-        obj.HrEstAfterKalman = [];
-        return;
-    end
-
-    %3. Prepare Data (BPM Vector)
-    raw_pk_times = unique(sort(obj.HrPeaks(:)), 'stable');
-    ibi_meas = diff(raw_pk_times);
-    hr_meas = 60 ./ ibi_meas; 
-
-   % Filter out extreme outliers (40-200 BPM) before starting
-    hr_meas(hr_meas < 40 | hr_meas > 200) = NaN;
-    hr_meas = fillmissing(hr_meas, 'nearest'); % Fill gaps for smoother
-
-   % --- PASS 1: FORWARD ---
-    [x_fwd, ~] = obj.RunKalmanCore(hr_meas, Q, R, P);
-
-    %--- PASS 2: BACKWARD ---
-   % Flip the data to run backwards
-    hr_meas_flipped = flipud(hr_meas);
-    [x_bwd_flipped, ~] = obj.RunKalmanCore(hr_meas_flipped, Q, R, P);
-    x_bwd = flipud(x_bwd_flipped); % Flip back to normal
-
-    %--- COMBINE (Average) ---
-    %This cancels the lag.
-    hr_smooth = (x_fwd + x_bwd) / 2;
-
-    obj.HrEstAfterKalman = hr_smooth;
-
-   % --- Reconstruct Peaks (Optional Phase Locking) ---
-    %Re-align peak times based on this smooth HR
-    rec_peaks = zeros(length(hr_smooth)+1, 1);
-    rec_peaks(1) = raw_pk_times(1);
-    curr_time = raw_pk_times(1);
-    for k = 1:length(hr_smooth)
-        pred_ibi = 60 / hr_smooth(k);
-        rec_peaks(k+1) = curr_time + pred_ibi;
-        curr_time = rec_peaks(k+1);
-    end
-
-    %Simple alignment to nearest real peaks to prevent drift
-   % (Only if real peaks are close)
-    for k=1:length(rec_peaks)
-        [min_val, min_idx] = min(abs(raw_pk_times - rec_peaks(k)));
-        if min_val < 0.1 % If within 100ms
-            rec_peaks(k) = raw_pk_times(min_idx);
-        end
-    end
-    obj.HrPeaksAfterKalman = rec_peaks;
-end
-%Helper Function (Private or Public)
-function [x_out, P_out] = RunKalmanCore(obj, z_in, Q, R, P)
-%    The core mathematical loop, separated for reuse
-    N = length(z_in);
-    x_out = nan(N, 1);
-    x = z_in(1); 
-    if isnan(x), x = 70; end % Fallback start
-
-    for k = 1:N
-        z = z_in(k);
-
-        %Predict
-        x_pred = x;
-        P_pred = P + Q;
-
-       %Update (if valid)
-        if isfinite(z)
-            K = P_pred / (P_pred + R);
-            x = x_pred + K * (z - x_pred);
-            P = (1 - K) * P_pred;
+    % --- 2. Calculate Statistics (Internal) ---
+    % We compute these fresh from the current signal state
+    validSig = obj.HrEstAfterMedian(~isnan(obj.HrEstAfterMedian));
+    
+    % Feature A: Variance (General Noise Level)
+    feat_Var = var(validSig);
+    
+    % Feature B: Peak-to-Peak (Dynamic Range - crucial for Tilt)
+    feat_PkPk = max(validSig) - min(validSig);
+    
+    % --- 3. Determine Scenario ---
+    % Handle the property name typo if it exists in your class
+    try
+        if isprop(obj, 'scenario')
+            scen = string(obj.scenario);
+        elseif isprop(obj, 'sceneario')
+            scen = string(obj.sceneario);
         else
-            x = x_pred;
-            P = P_pred;
+            scen = "Resting";
         end
-        x_out(k) = x;
+    catch
+        scen = "Resting";
     end
-    P_out = P;
+    scen = lower(scen);
+
+    % --- 4. Apply Regression Formulas ---
+    % Derived from "Best_Dual_Parameters_WideRange.csv" analysis
+    
+    % Default Baselines
+    Q_est = 50; 
+    R_est = feat_Var; 
+
+    if contains(scen, 'resting') || contains(scen, 'apnea')
+        % Low Dynamics: Quadratic R scaling, Low Q
+        Q_est = 10; 
+        R_est = 0.003 * (feat_Var ^ 1.9);
+        
+    elseif contains(scen, 'valsalva')
+        % High Noise/Strain: Cubic R scaling, Moderate Q
+        Q_est = 100; 
+        R_est = 0.0001 * (feat_Var ^ 2.7);
+        
+    elseif contains(scen, 'tilt')
+        % Orthostatic Shift: Threshold behavior on Peak-to-Peak
+        if feat_PkPk > 40
+            Q_est = 1000; % Large shift -> Open filter
+        else
+            Q_est = 50;
+        end
+        % R scales linearly (less noise than Valsalva)
+        R_est = 1.0 * feat_Var;
+    end
+
+    % --- 5. Adjust for Filter Type ---
+    if exist('filterType', 'var') && strcmpi(filterType, 'BiState')
+        % Bi-State Model (Position + Velocity)
+        % Can handle higher Q because it tracks derivative
+        Q_est = Q_est * 2; 
+    else
+        % Standard Model (Position Only)
+        % Clamp Q to prevent over-fitting noise
+        if Q_est > 200 && contains(scen, 'resting')
+            Q_est = 50; 
+        end
+    end
+
+    % --- 6. Safety Clamps ---
+    % Prevent mathematical instability
+    if R_est < 0.1, R_est = 0.1; end
+    if R_est > 10000, R_est = 10000; end
+    if Q_est < 0.01, Q_est = 0.01; end
+    if Q_est > 5000, Q_est = 5000; end
+    
+    bestQ = Q_est;
+    bestR = R_est;
+    
+    % Optional: Print for debugging
+    % fprintf('[AutoTune] %s: Q=%.1f, R=%.1f\n', scen, bestQ, bestR);
 end
+
+function [optQ, optR] = OptimizeKalman_Innovation(obj, maxIter, b_plot)
+    % OptimizeKalman_Innovation (with Visual Progress)
+    % Iteratively tunes Q to match the Theoretical Innovation Variance.
+    %
+    % Inputs:
+    %   maxIter : Maximum iterations (default 15)
+    %   b_plot  : Boolean, true to see the "CAF/Progress" graph (default true)
+    
+    if nargin < 2, maxIter = 15; end
+    if nargin < 3, b_plot = true; end
+
+    % --- 1. PREPARE DATA ---
+    meas = obj.HrEstAfterMedian;
+    validMask = ~isnan(meas);
+    z_all = meas(validMask);
+    
+    if length(z_all) < 50
+        warning('Not enough data for Innovation Tuning. Using defaults.');
+        optQ = 50; optR = 10; return;
+    end
+    
+    Fs = obj.fs_new;
+    dt = 1/Fs;
+
+    % --- 2. INITIALIZATION ---
+    % Estimate R from high-frequency noise (MAD of first difference)
+    % This acts as our "Anchor" so we don't drift in 2D space indefinitely.
+    diff_sig = diff(z_all);
+    noise_est = median(abs(diff_sig - median(diff_sig))) * 1.4826; % Robust Std Dev
+    currentR = (noise_est^2) / 2; 
+    
+    if currentR < 0.1, currentR = 0.1; end
+    
+    % Start Q at a moderate guess
+    currentQ = 50; 
+    
+    % History for Plotting
+    hist_Q = [];
+    hist_NIS = [];
+    hist_Iter = [];
+
+    fprintf('--- Starting Innovation Tuning (Target NIS = 1.0) ---\n');
+
+    % --- 3. ITERATION LOOP ---
+    for iter = 1:maxIter
+        
+        % A. Run Filter (Minimal Implementation for Speed)
+        [nu_vec, S_vec] = local_GetInnovationStats(z_all, dt, currentQ, currentR);
+        
+        % B. Calculate NIS (Normalized Innovation Squared)
+        % Metric: mean( error^2 / predicted_variance )
+        % Perfect consistency means this equals 1.0
+        nis_val = mean((nu_vec.^2) ./ S_vec);
+        
+        % Store history
+        hist_Q = [hist_Q; currentQ];
+        hist_NIS = [hist_NIS; nis_val];
+        hist_Iter = [hist_Iter; iter];
+        
+        % Print
+        fprintf('Iter %2d: Q=%8.2f | R=%8.2f | NIS=%.3f ', iter, currentQ, currentR, nis_val);
+        
+        % C. Check Convergence
+        if abs(nis_val - 1.0) < 0.05
+            fprintf('--> CONVERGED\n');
+            break;
+        end
+        
+        % D. Update Rule (Feedback Loop)
+        % If NIS > 1: Filter is "Overconfident" (P is too small). Increase Q to inflate P.
+        % If NIS < 1: Filter is "Underconfident" (P is too large). Decrease Q.
+        
+        % Dampened Update: Q_new = Q_old * (NIS)^0.75
+        gain = nis_val^0.75; 
+        
+        % Clamp gain to prevent explosion/collapse
+        if gain > 5.0, gain = 5.0; end
+        if gain < 0.2, gain = 0.2; end
+        
+        currentQ = currentQ * gain;
+        
+        % Safety Clamps on Q
+        if currentQ < 0.001, currentQ = 0.001; end
+        if currentQ > 10000, currentQ = 10000; end
+        
+        fprintf('\n');
+    end
+    
+    optQ = currentQ;
+    optR = currentR;
+
+    % --- 4. VISUALIZATION (CAF / PROGRESS GRAPH) ---
+    if b_plot
+        figure('Name', 'Kalman Optimization Progress', 'Color', 'w');
+        
+        % Subplot 1: Convergence of Q (Parameter Space)
+        subplot(2,2,1);
+        plot(hist_Iter, hist_Q, '-o', 'LineWidth', 2, 'Color', 'b');
+        grid on;
+        xlabel('Iteration'); ylabel('Process Noise Q');
+        title('Parameter Convergence');
+        set(gca, 'YScale', 'log'); % Q varies exponentially
+        
+        % Subplot 2: Convergence of NIS (Cost Function)
+        subplot(2,2,2);
+        plot(hist_Iter, hist_NIS, '-s', 'LineWidth', 2, 'Color', 'r');
+        yline(1.0, '--k', 'Target (1.0)', 'LineWidth', 2);
+        grid on;
+        xlabel('Iteration'); ylabel('NIS (Avg \nu^2 / S)');
+        title('Innovation Consistency (Target = 1.0)');
+        ylim([0, max(hist_NIS)*1.2]);
+        
+        % Subplot 3: Phase Plane / Optimization Trajectory
+        subplot(2,2,3);
+        plot(hist_NIS, hist_Q, '-x', 'LineWidth', 1.5, 'Color', 'm');
+        xline(1.0, '--k');
+        grid on;
+        xlabel('NIS (Error Ratio)'); ylabel('Q (Log Scale)');
+        title('Optimization Trajectory');
+        set(gca, 'YScale', 'log');
+        text(hist_NIS(1), hist_Q(1), 'Start');
+        text(hist_NIS(end), hist_Q(end), 'End');
+        
+        % Subplot 4: Final Innovation Distribution (Histogram)
+        % If perfect, this should look like a Gaussian N(0, S)
+        subplot(2,2,4);
+        normalized_inn = nu_vec ./ sqrt(S_vec); % Should be N(0,1)
+        histogram(normalized_inn, 30, 'Normalization', 'pdf');
+        hold on;
+        x_dummy = linspace(-4, 4, 100);
+        plot(x_dummy, normpdf(x_dummy, 0, 1), 'r', 'LineWidth', 2);
+        title('Final Residual Normality (Check for Bell Curve)');
+        xlabel('Standardized Innovation');
+        legend('Actual', 'Ideal N(0,1)');
+        grid on;
+        
+        drawnow;
+    end
+end
+
+% --- HELPER: Minimal Kalman for Stats ---
+function [nu_vec, S_vec] = local_GetInnovationStats(meas, dt, Q_in, R_in)
+    N = length(meas);
+    A = 1; H = 1; 
+    Q = Q_in * dt; R = R_in;
+    x = meas(1); P = 10;
+    
+    nu_vec = nan(N,1); S_vec = nan(N,1);
+    
+    for k = 1:N
+        % Predict
+        x_pred = A*x; 
+        P_pred = A*P*A' + Q;
+        
+        % Innovation
+        z = meas(k);
+        S = H*P_pred*H' + R;
+        nu = z - H*x_pred;
+        
+        nu_vec(k) = nu;
+        S_vec(k) = S;
+        
+        % Update
+        K = P_pred*H'/S;
+        x = x_pred + K*nu;
+        P = (1 - K*H)*P_pred;
+    end
+end
+
+
 %% PLOTS        
         % ---------------------------------------------------------
         % Plotting Functions

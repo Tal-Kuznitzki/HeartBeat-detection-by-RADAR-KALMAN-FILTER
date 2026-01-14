@@ -1,234 +1,198 @@
-%% Optimize Kalman Parameters (Lightweight & OneDrive Safe)
-% GOAL: Find best parameters for EACH (ID, Scenario) pair.
-% OUTPUT: A CSV file with the best Q, R, and Filter Type for each file.
-% DOES NOT save the heavy 'dataFull' object.
+%% TuneParameters_FineGrid.m
+% GOAL: Fine-grained optimization of Q and R using internal object methods.
+% OUTPUT: Sorted Excel/CSV file with Best Parameters and Signal Statistics.
 
-% --- PROTECTION 1: Check if Data Exists ---
+% --- PROTECTION: Check Data ---
 if ~exist('dataFull', 'var')
-    error('Error: Variable "dataFull" is missing. Please run mainFunc.m to load your data first.');
+    error('Error: Variable "dataFull" is missing. Please run mainFunc.m first.');
 end
 
 clc;
-fprintf('Starting Robust Overnight Parameter Optimization...\n');
+fprintf('Starting Fine-Grained Parameter Tuning...\n');
+fprintf('Method: Internal Object Calls (Filter + TimeFitting)\n');
+fprintf('Grid Size: 40x40 (1600 iterations per filter type per file)\n');
+fprintf('This may take time. Progress will be saved incrementally.\n\n');
 
-% Define a safe temporary file path (bypassing OneDrive)
-tempPath = fullfile(tempdir, 'kalman_optimization_progress.mat');
-fprintf('Progress will be saved to local temp: %s\n', tempPath);
-fprintf('If MATLAB crashes, load that file to recover "final_results".\n\n');
+% Define temp path
+tempPath = fullfile(tempdir, 'kalman_fine_progress.mat');
 
-% --- 1. DEFINITIONS ---
+% --- 1. CONFIGURATION ---
 [nRows, nCols] = size(dataFull);
+outputCsv = 'Fine_Kalman_Tuning.csv';
 
-P_fixed = 5.0; % Fixed Covariance
-
-% --- 2. ULTRA-FINE GRID ---
-% Q: Process Noise (0.001 to 3000)
-q_low = logspace(-2, 1, 15);       % 0.001 -> 0.1
-q_mid = logspace(log10(0.15), log10(200), 50); % Sweet spot
-q_high = linspace(50, 150, 20);
-Q_list = unique([q_low, q_mid, q_high]);
-
-% R: Measurement Noise (1 to 10000)
-r_low = logspace(0, 1.5, 15);
-r_mid = logspace(log10(35), log10(1500), 50); % Sweet spot
-r_high = linspace(1600, 10000, 20);
-R_list = unique([r_low, r_mid, r_high]);
-
-filterTypes = {'Standard', 'BiDirectional'};
+% --- 2. DEFINE FINE SEARCH GRID ---
+% Logarithmic spacing from 10^-5 to 10^5 to catch everything
+% 40 points per parameter = 1600 combinations
+Q_list = logspace(-5, 5, 40); 
+R_list = logspace(-3, 5, 40);
 
 % Prepare Results Container
-final_results = {};
+final_results = {}; 
+stats_counter = struct('Processed', 0, 'Skipped', 0);
 
 startTotal = tic;
+wb = waitbar(0, 'Initializing...');
 
-% --- 3. MAIN LOOP (Per File) ---
+% --- 3. MAIN LOOP ---
 for i = 1:nRows
     for j = 1:nCols
-
-        % --- PROTECTION 2: Check Object Validity ---
-        if isempty(dataFull{i,j}), continue; end
-
+        
+        % Update Waitbar
+        progress = ((i-1)*nCols + j) / (nRows*nCols);
+        waitbar(progress, wb, sprintf('Patient %d/%d', i, nRows));
+        
+        % --- Validity Checks ---
+        if isempty(dataFull{i,j})
+            stats_counter.Skipped = stats_counter.Skipped + 1;
+            continue; 
+        end
         obj = dataFull{i,j};
-        ID_str = string(obj.ID);
-        Scen_str = string(obj.sceneario);
-
-        % --- PROTECTION 3: Check Data Content ---
-        if isempty(obj.HrPeaks) || length(obj.HrPeaks) < 5
-            fprintf('Skipping %s - %s: Not enough Radar peaks.\n', ID_str, Scen_str);
-            continue;
-        end
-        if isempty(obj.ecgPeaks) || length(obj.ecgPeaks) < 5
-            fprintf('Skipping %s - %s: Not enough ECG (GT) peaks.\n', ID_str, Scen_str);
-            continue;
-        end
-
-        fprintf('Processing: %s - %s ...\n', ID_str, Scen_str);
-
-        % Initialize Best-for-File trackers
-        best_for_file.Corr = -2;
-        best_for_file.Q = NaN;
-        best_for_file.R = NaN;
-        best_for_file.Type = "None";
-        best_for_file.RMSE = Inf;
-
-        % --- 4. FILTER TYPE LOOP ---
-        for fType = 1:length(filterTypes)
-            currentType = filterTypes{fType};
-
-            % Reset local best for this specific filter type
-            local_best_corr = -2;
-
-            % Progress bar for this file & filter type
-           % hWait = waitbar(0, sprintf('%s-%s (%s)', ID_str, Scen_str, currentType));
-
-            % --- 5. GRID SEARCH LOOP ---
-            for q_idx = 1:length(Q_list)
-                q = Q_list(q_idx);
-
-                for r = R_list
-                    % --- PROTECTION 4: Mathematical Safety ---
-                    try
-                        % 1. Run Filter
-                        if strcmp(currentType, 'Standard')
-                            obj.KalmanFilterBeats(q, r);
-                        else
-                            obj.KalmanSmooth_BiDir(q, r, P_fixed);
-                        end
-
-                        % 2. Run Time Fitting
-                        obj.timeFitting();
-
-                        % 3. Check Metrics
-                        est = obj.CorrKalmanHr_on_gt_time;
-                        gt  = obj.CorrGt;
-                        valid = ~isnan(est) & ~isnan(gt);
-
-                        if sum(valid) > 15
-                            curr_corr = obj.kalmanCorrValue;
-
-                            % Optimization Check
-                            if curr_corr > local_best_corr
-                                local_best_corr = curr_corr;
-
-                                % Check Global Best for File
-                                if curr_corr > best_for_file.Corr
-                                    err = est(valid) - gt(valid);
-                                    curr_rmse = sqrt(mean(err.^2));
-
-                                    best_for_file.Corr = curr_corr;
-                                    best_for_file.Q = q;
-                                    best_for_file.R = r;
-                                    best_for_file.Type = string(currentType);
-                                    best_for_file.RMSE = curr_rmse;
-                                end
-                            end
-                        end
-                    catch
-                        % Ignore math errors
-                    end
-                end
-                % Update progress bar
-%                waitbar(q_idx/length(Q_list), hWait);
-            end
-    %        close(hWait);
-        end
-
-        % --- 6. UPDATE OBJECT & SAVE RESULTS ---
-        if best_for_file.Corr > -2
-            fprintf('  -> WINNER: %s (Q=%.2f, R=%.0f) | Corr: %.4f\n', ...
-                best_for_file.Type, best_for_file.Q, best_for_file.R, best_for_file.Corr);
-
-            % Update object in memory (so you can plot it later if you want)
-            if strcmp(best_for_file.Type, 'Standard')
-                obj.KalmanFilterBeats(best_for_file.Q, best_for_file.R);
-            else
-                obj.KalmanSmooth_BiDir(best_for_file.Q, best_for_file.R, P_fixed);
-            end
-            obj.timeFitting();
-
-            % --- NEW: HrEst variance metrics ---
-            hr = obj.HrEst(:);
-            vhr = hr(~isnan(hr));
-            Nhr = numel(vhr);
-            
-            if Nhr >= 2
-                HrEstVar = var(vhr);                       % length-invariant
-                HrEstTotalVar = sum((vhr - mean(vhr)).^2); % length-dependent
-                HrEstTotalVarNorm = HrEstTotalVar / Nhr;   % length-normalized
-            elseif Nhr == 1
-                HrEstVar = 0;
-                HrEstTotalVar = 0;
-                HrEstTotalVarNorm = 0;
-            else
-                HrEstVar = NaN;
-                HrEstTotalVar = NaN;
-                HrEstTotalVarNorm = NaN;
-            end
-
-
-            % Store in list
-            new_row = {ID_str, Scen_str, best_for_file.Type, ...
-            best_for_file.Q, best_for_file.R, ...
-            best_for_file.Corr, best_for_file.RMSE, ...
-            HrEstVar, HrEstTotalVar, HrEstTotalVarNorm, Nhr};
-
-            final_results = [final_results; new_row];
-        else
-            fprintf('  -> NO VALID RESULTS for %s - %s\n', ID_str, Scen_str);
-        end
-
-        % --- PROTECTION 5: Lightweight Incremental Save ---
-        % Only saves the parameter list to TEMP folder.
+        
+        % ID & Scenario Extraction
         try
-            save(tempPath, 'final_results');
-        catch ME
-            fprintf(2, 'Warning: Could not save temp file. Continuing... (%s)\n', ME.message);
+            ID_str = string(obj.ID);
+            if isprop(obj, 'scenario'), Scen_str = string(obj.scenario); 
+            elseif isprop(obj, 'sceneario'), Scen_str = string(obj.sceneario);
+            else, Scen_str = "Unknown"; end
+        catch
+            ID_str = "Unknown"; Scen_str = "Unknown";
+        end
+
+        % --- A. CHECK INPUT DATA ---
+        % We need the Median HR Estimate to run the filter
+        if isempty(obj.HrEstAfterMedian) || all(isnan(obj.HrEstAfterMedian))
+             if isprop(obj, 'medianHR') && ~isempty(obj.medianHR)
+                 InputSig = obj.medianHR;
+             else
+                 % No data to process
+                 stats_counter.Skipped = stats_counter.Skipped + 1;
+                 continue; 
+             end
+        else
+            InputSig = obj.HrEstAfterMedian;
+        end
+        
+        % Ensure we have Ground Truth for correlation checking
+        if isempty(obj.CorrGt)
+            try, obj.timeFitting(); catch, end
+        end
+        if isempty(obj.CorrGt) || sum(~isnan(obj.CorrGt)) < 10
+             stats_counter.Skipped = stats_counter.Skipped + 1;
+             fprintf('Skipping %s %s: No GT available.\n', ID_str, Scen_str);
+             continue;
+        end
+
+        stats_counter.Processed = stats_counter.Processed + 1;
+        fprintf('Tuning: %s - %s ... ', ID_str, Scen_str);
+
+        % --- B. CALCULATE STATISTICS (On Input Signal) ---
+        valid_input = InputSig(~isnan(InputSig));
+        
+        feat_Var = var(valid_input);
+        feat_Roughness = mean(abs(diff(valid_input)));
+        feat_PkPk = max(valid_input) - min(valid_input);
+        feat_Kurtosis = kurtosis(valid_input);
+        feat_Skew = skewness(valid_input);
+        
+        % Initialize Best Trackers
+        best_std = struct('Q', NaN, 'R', NaN, 'RMSE', Inf, 'Corr', -2);
+        best_bi  = struct('Q', NaN, 'R', NaN, 'RMSE', Inf, 'Corr', -2);
+        
+        % --- 4. GRID SEARCH LOOP ---
+        % Optimization: Loop R inside Q to minimize Q-matrix re-allocations (minor help)
+        
+        for iQ = 1:length(Q_list)
+            q_val = Q_list(iQ);
+            
+            for iR = 1:length(R_list)
+                r_val = R_list(iR);
+                
+                % --- FILTER 1: STANDARD (1-State) ---
+                try
+                    obj.kalmanFilterBeats(q_val, r_val);
+                    obj.timeFitting(); % Align to GT
+                    
+                    c_val = obj.kalmanCorrValue;
+                    if c_val > best_std.Corr
+                        % Calc RMSE only if Corr is good (optimization)
+                        diff_v = obj.CorrKalmanHr_on_gt_time - obj.CorrGt;
+                        r_val_rmse = sqrt(nanmean(diff_v.^2));
+                        
+                        best_std.Corr = c_val;
+                        best_std.RMSE = r_val_rmse;
+                        best_std.Q = q_val;
+                        best_std.R = r_val;
+                    end
+                catch
+                end
+                
+                % --- FILTER 2: BI-STATE (2-State) ---
+                try
+                    obj.kalmanFilterBistate(q_val, r_val);
+                    obj.timeFitting();
+                    
+                    c_val = obj.kalmanCorrValue;
+                    if c_val > best_bi.Corr
+                        diff_v = obj.CorrKalmanHr_on_gt_time - obj.CorrGt;
+                        r_val_rmse = sqrt(nanmean(diff_v.^2));
+                        
+                        best_bi.Corr = c_val;
+                        best_bi.RMSE = r_val_rmse;
+                        best_bi.Q = q_val;
+                        best_bi.R = r_val;
+                    end
+                catch
+                end
+                
+            end 
+        end
+        
+        fprintf('Done. (Best Std Corr: %.2f | Bi Corr: %.2f)\n', best_std.Corr, best_bi.Corr);
+        
+        % --- 5. STORE RESULTS ---
+        new_row = { ...
+            ID_str, Scen_str, ...
+            feat_Var, feat_Roughness, feat_PkPk, feat_Kurtosis, feat_Skew, ...
+            best_std.Q, best_std.R, best_std.RMSE, best_std.Corr, ...
+            best_bi.Q,  best_bi.R,  best_bi.RMSE,  best_bi.Corr ...
+        };
+       
+        final_results = [final_results; new_row];
+        
+        % Periodic Save
+        if mod(length(final_results), 1) == 0
+            save(tempPath, 'final_results', 'stats_counter');
         end
     end
 end
+close(wb);
 
 totalTime = toc(startTotal);
-fprintf('\n======================================================\n');
-fprintf('OPTIMIZATION COMPLETE in %.2f hours.\n', totalTime/3600);
-fprintf('======================================================\n');
+fprintf('\n=================================================\n');
+fprintf('Processing Finished in %.2f minutes.\n', totalTime/60);
+fprintf('Processed: %d Files | Skipped: %d Files\n', stats_counter.Processed, stats_counter.Skipped);
+fprintf('=================================================\n');
 
-%% --- 7. FINAL EXPORT (Small Files Only) ---
+% --- 6. EXPORT AND SORT ---
 if ~isempty(final_results)
-    % ResultTable = cell2table(final_results, ...
-    %     'VariableNames', {'ID', 'Scenario', 'BestFilter', 'BestQ', 'BestR', ...
-    %                       'MaxCorr', 'MinRMSE', 'HrEstVar', 'HrEstTotalVar'});
-    ResultTable = cell2table(final_results, ...
-    'VariableNames', {'ID', 'Scenario', 'BestFilter', ...
-                      'BestQ', 'BestR', ...
-                      'MaxCorr', 'MinRMSE', ...
-                      'HrEstVar', 'HrEstTotalVar', ...
-                      'HrEstTotalVarNorm', 'HrEstN'});
+    varNames = {'ID', 'Scenario', ...
+                'In_Variance', 'In_Roughness', 'In_PkPk', 'In_Kurtosis', 'In_Skew', ...
+                'Std_BestQ', 'Std_BestR', 'Std_MinRMSE', 'Std_MaxCorr', ...
+                'Bi_BestQ',  'Bi_BestR',  'Bi_MinRMSE',  'Bi_MaxCorr'};
 
-    ResultTable = sortrows(ResultTable, {'ID', 'Scenario'});
+    ResultTable = cell2table(final_results, 'VariableNames', varNames);
     
-    disp(ResultTable);
+    % --- SORTING LOGIC ---
+    % 1. Sort by ID (GDN0001, GDN0002...)
+    % 2. Then by Scenario
+    try
+        ResultTable = sortrows(ResultTable, {'ID', 'Scenario'});
+    catch
+        fprintf('Warning: Sorting failed (check ID format). Saving unsorted.\n');
+    end
 
-    % Save Table to CSV
-    csvName = 'Best_Kalman_Parameters.csv';
-    writetable(ResultTable, csvName);
-
-    % Save Table to MAT (Just the table, not the data)
-    matName = 'Optimization_Results_Table.mat';
-    save(matName, 'ResultTable');
-
-    fprintf('Success! Saved parameters to:\n  1. %s\n  2. %s\n', csvName, matName);
+    writetable(ResultTable, outputCsv);
+    fprintf('Results saved to %s\n', outputCsv);
 else
-    fprintf('No results were generated.\n');
+    fprintf('No results generated. Check if dataFull has valid data.\n');
 end
-
-
-%%
-
-% Example:
-% csvPath = 'Best_Kalman_Parameters.csv';
-% If your RadarDist sampling rate is known (recommended), pass it:
-T = updateKalmanCsvWithQualityFeatures(dataFull, 'Best_Kalman_Parameters.csv', ...
-    'FsDist',  dataFull{1,1}.fs_new, ...      % or a numeric value like 200
-    'OverwriteCsv', true);
-
-% If you omit FsDist, it will try obj.fs_new then obj.fs.
