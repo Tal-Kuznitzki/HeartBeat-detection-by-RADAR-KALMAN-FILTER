@@ -30,13 +30,9 @@ b_plot_ALL = false;
 
 
 
-IDrange = [5,27] ; %11:12;  
-IDrange = 1:30;
-%IDrange = 27; 
+IDrange = [1] ; %11:12;  
 scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
-scenarios = {"Resting","TiltUp"};
-scenarios={"Resting","Valsalva","Apnea","TiltDown","TiltUp"};
-%scenarios= {"TiltDown"};
+
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
@@ -131,7 +127,7 @@ for indx = 1:length(IDrange)
         dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
         dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
         filteringTime = toc;         
-        dataFull{indx,sz}.kalmanSmoothRadarDist(); //WHY ? 
+        dataFull{indx,sz}.kalmanSmoothRadarDist(); %//WHY ? 
       %  dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
      %% 6. time analysis
        
@@ -196,7 +192,7 @@ for indx = 1:length(IDrange)
 
         dataFull{indx,sz}.timeFitting(); %generates CORRELATED HR
       
-         % % dataFull{indx,sz}.plot_examples();
+         dataFull{indx,sz}.plot_examples();
         %%
         % show all results with CorrGt and CorrKalmanHr
     

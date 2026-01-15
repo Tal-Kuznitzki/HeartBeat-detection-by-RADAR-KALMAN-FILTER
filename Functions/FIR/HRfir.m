@@ -4,25 +4,25 @@ function [firL,firH] = HRfir(fs)
 % fs for sampling freq, and N<100
 N = 100; % Filter order
 
-StopbandFrequencyH = 0.4;
-StopbandFrequencyL = 4;
+StopbandFrequencyH = 0.5;
+StopbandFrequencyL = 3.5;
 
-PassbandFrequencyH=0.7;
-PassbandFrequencyL=3;
+PassbandFrequencyH=0.8;
+PassbandFrequencyL=2;
 
 % we pass between 0.7-3, and 0.4<Signal<4
 
 
-StopbandAttenuationH=60;
+StopbandAttenuationH=80;
 StopbandAttenuationL=80;
 
 firH = designfilt('highpassfir','StopbandFrequency',StopbandFrequencyH,...
     'PassbandFrequency',PassbandFrequencyH,'StopbandAttenuation',StopbandAttenuationH, ...
-        'SampleRate',fs);
+        'SampleRate',fs,'passbandRipple',0.05);
 
 firL = designfilt('lowpassfir','PassbandFrequency',PassbandFrequencyL,...
     'StopbandFrequency',StopbandFrequencyL,'StopbandAttenuation',StopbandAttenuationL, ...
-        'SampleRate',fs);
+        'SampleRate',fs,'passbandRipple',0.05);
 
 
 
