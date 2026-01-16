@@ -5,10 +5,10 @@ function [firL,firH] = HRfir(fs)
 N = 100; % Filter order
 
 StopbandFrequencyH = 0.5;
-StopbandFrequencyL = 3.5;
+StopbandFrequencyL = 3.7;
 
 PassbandFrequencyH=0.8;
-PassbandFrequencyL=2;
+PassbandFrequencyL=1.7;
 
 % we pass between 0.7-3, and 0.4<Signal<4
 

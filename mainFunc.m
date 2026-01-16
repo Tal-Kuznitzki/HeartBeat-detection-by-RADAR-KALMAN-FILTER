@@ -31,7 +31,7 @@ b_plot_ALL = false;
 
 
 IDrange = [1] ; %11:12;  
-scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios= {"Valsalva"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
@@ -126,8 +126,9 @@ for indx = 1:length(IDrange)
         dataFull{indx,sz}.DownSampleRadar(resampleFS);
         dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
         dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
+        dataFull{indx,sz}.NormalizeHrSignal(1.5);
         filteringTime = toc;         
-        dataFull{indx,sz}.kalmanSmoothRadarDist(); %//WHY ? 
+        %dataFull{indx,sz}.kalmanSmoothRadarDist(); %//WHY ? 
       %  dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
      %% 6. time analysis
        
@@ -179,7 +180,7 @@ for indx = 1:length(IDrange)
         % Apply them
         q_auto
         r_auto
-        dataFull{indx,sz}.kalmanFilterBeats(Q,R) 
+        dataFull{indx,sz}.kalmanFilterBeats(q_auto,r_auto) 
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
         % generates HrPeaksAfterKalman and HrEstAfterKalman
 

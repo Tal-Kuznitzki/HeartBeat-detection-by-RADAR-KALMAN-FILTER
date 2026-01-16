@@ -184,6 +184,49 @@ classdef radarClass < handle
             obj.RrSignal = filtfilt(firH, obj.RrSignal);
         end
         %finding the peaks and normalize to seconds
+        function NormalizeHrSignal(obj, winSec)
+        % NormalizeHrSignal
+        % Locally normalizes obj.HrSignal so its amplitude is consistent over time.
+        % Each sample is divided by the local mean absolute value in a ±winSec window.
+        %
+        % Inputs:
+        %   winSec (optional) - half window length in seconds (default = 2)
+        %
+        % Uses:
+        %   obj.HrSignal
+        %   obj.fs_new
+        %
+        % Output:
+        %   obj.HrSignal (normalized in-place)
+        
+            if nargin < 2 || isempty(winSec)
+                winSec = 2;   % seconds to each side
+            end
+        
+            if isempty(obj.HrSignal) || isempty(obj.fs_new) || obj.fs_new <= 0
+                return;
+            end
+        
+            x  = obj.HrSignal(:);
+            fs = obj.fs_new;
+        
+            winSamples = round(winSec * fs);
+            winSamples = max(winSamples, 1);
+        
+            % Local scale estimate: mean absolute value in window
+            % Use movmean for efficiency and stability
+            localScale = movmean(abs(x), 2*winSamples + 1, 'Endpoints', 'shrink');
+        
+            % Prevent division by zero / tiny values
+            epsVal = 1e-6 * median(localScale(localScale > 0));
+            localScale(localScale < epsVal) = epsVal;
+        
+            % Normalize
+            xNorm = x ./ localScale;
+        
+            obj.HrSignal = xNorm;
+        end
+
         function FindPeaks(obj)
             thresholdHr= mean(abs((obj.HrSignal)))*0.05;
             thresholdRr= mean(abs((obj.RrSignal)))*0.05;
