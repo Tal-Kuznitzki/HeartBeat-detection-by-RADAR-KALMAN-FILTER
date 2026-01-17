@@ -475,6 +475,166 @@ function timeFitting(obj)
 end
 
 %% KALMAN 
+% new
+function KalmanFilterHrGrid(obj, b_drawGrid)
+% KalmanFilterHrGrid
+% 3-state KF: [HR; HRdot; HRddot], where only HRddot has process noise (random walk).
+% Grid-search Q and R to minimize summed normalized innovation (y^2/S).
+% If b_drawGrid==1, plots CAF-style heatmap of innovation cost.
+%
+% Uses:
+%   obj.HrEst (BPM, beat-indexed)
+%
+% Saves:
+%   obj.KalmanFilterHr (BPM)
+
+if nargin < 2 || isempty(b_drawGrid)
+    b_drawGrid = 0;
+end
+
+if isempty(obj.HrEst)
+    obj.HrEstAfterKalman = [];
+    return;
+end
+
+vZ = obj.HrEst(:);
+n = numel(vZ);
+if n < 4
+    obj.HrEstAfterKalman = vZ;
+    return;
+end
+
+isValid = isfinite(vZ) & (vZ > 0);
+
+HRmin = 30;
+HRmax = 220;
+
+i0 = find(isValid, 1, 'first');
+if isempty(i0)
+    obj.HrEstAfterKalman = vZ;
+    return;
+end
+
+% ---- init state ----
+x = [vZ(i0); 0; 0];                 % [HR; HRdot; HRddot]
+P = diag([25, 9, 4]);               % tuneable; uncertainty in accel too
+H = [1 0 0];
+I3 = eye(3);
+
+% ---- Q/R grids ----
+vQlog = logspace(-4, 1, 40);        % 1e-3..10 (dense)
+vQlin = linspace(10, 100, 20);      % 10..200
+vQ = unique([vQlog, vQlin]);
+
+vRlog = logspace(-4, 1, 25);
+vRlin = linspace(10, 150, 15);
+vR = unique([vRlog, vRlin]);
+
+nQ = numel(vQ);
+nR = numel(vR);
+mCost = nan(nR, nQ);
+
+bestCost = inf;
+bestXhat = nan(n,1);
+
+% Precompute a "reasonable" dt when invalid
+dtFallback = 60 / 75;  % ~0.8s
+
+for iQ = 1:nQ
+    q = vQ(iQ);     % acceleration process noise intensity (bpm/s^2)^2-ish
+
+    for iR = 1:nR
+        r = vR(iR); % measurement noise variance (bpm^2)
+
+        xk = x;
+        Pk = P;
+        cost = 0;
+        xhat = nan(n,1);
+
+        for k = 1:n
+            % dt derived from HR (seconds/beat)
+            if isValid(k)
+                hrForDt = min(max(vZ(k), HRmin), HRmax);
+                dt = 60 / hrForDt;
+            else
+                hrForDt = min(max(xk(1), HRmin), HRmax);
+                dt = 60 / hrForDt;
+            end
+
+            if ~isfinite(dt) || dt <= 0
+                dt = dtFallback;
+            end
+
+            % State transition (constant acceleration)
+            F = [ 1  dt  0.5*dt*dt
+                  0  1   dt
+                  0  0   1 ];
+
+            % Process noise: ONLY on HRddot
+            % Optional: scale with dt (usually helpful)
+            Qk = diag([0, 0, q]) * dt;
+
+            % Predict
+            xk = F*xk;
+            Pk = F*Pk*F.' + Qk;
+
+            % Update
+            if isValid(k)
+                z = min(max(vZ(k), HRmin), HRmax);
+
+                y = z - H*xk;
+                S = H*Pk*H.' + r;
+
+                cost = cost + (y*y) / S;
+
+                K = (Pk*H.') / S;
+                xk = xk + K*y;
+                Pk = (I3 - K*H) * Pk;
+            end
+
+            % Clamp HR state
+            xk(1) = min(max(xk(1), HRmin), HRmax);
+            xhat(k) = xk(1);
+            d1 = diff(xhat);
+            smoothPenalty = sum(d1.^2);
+
+            lambda = 0;   % start here, tune 0.005..0.1
+            score = cost + lambda * smoothPenalty;
+
+        end
+
+        mCost(iR, iQ) = score; %%%cost
+
+        if score < bestCost  %%%cost
+            bestCost = score;  %%%cost
+            bestXhat = xhat;
+            bestR=iR;
+            bestQ=iQ;
+        end
+    end
+end
+
+obj.HrEstAfterKalman = bestXhat;
+bestQ
+bestR
+
+if b_drawGrid == 1
+    [Qm, Rm] = meshgrid(vQ, vR);
+    figure;
+    surf((Qm), (Rm), 1./mCost, 'EdgeColor','none');
+    view(2);
+    colorbar;
+    xlabel('log10(Q_{acc})');
+    ylabel('log10(R)');
+    title('Innovation Cost (CAF-style) - Acceleration Random Walk Model');
+end
+
+end
+
+
+
+%end of new 
+
 function kalmanFilterBeats(obj, Q, R)
     % Standard 1-State Kalman Filter (Tracking HR Position)
     

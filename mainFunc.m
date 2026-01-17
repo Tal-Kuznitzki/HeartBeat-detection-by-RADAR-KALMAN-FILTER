@@ -31,7 +31,7 @@ b_plot_ALL = false;
 
 
 IDrange = [1] ; %11:12;  
-scenarios= {"Valsalva"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
@@ -181,6 +181,7 @@ for indx = 1:length(IDrange)
         q_auto
         r_auto
         dataFull{indx,sz}.kalmanFilterBeats(q_auto,r_auto) 
+        dataFull{indx,sz}.KalmanFilterHrGrid(1); %1 to draw CAF NEW
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
         % generates HrPeaksAfterKalman and HrEstAfterKalman
 
