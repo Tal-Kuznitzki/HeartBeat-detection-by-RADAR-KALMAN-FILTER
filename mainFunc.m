@@ -30,7 +30,7 @@ b_plot_ALL = false;
 
 
 
-IDrange = [1] ; %11:12;  
+IDrange = [2] ; %11:12;  
 scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
@@ -126,7 +126,7 @@ for indx = 1:length(IDrange)
         dataFull{indx,sz}.DownSampleRadar(resampleFS);
         dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
         dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
-        dataFull{indx,sz}.NormalizeHrSignal(1.5);
+        dataFull{indx,sz}.NormalizeHrSignal(1.0);
         filteringTime = toc;         
         %dataFull{indx,sz}.kalmanSmoothRadarDist(); %//WHY ? 
       %  dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
@@ -150,6 +150,8 @@ for indx = 1:length(IDrange)
             dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
             dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
             filteringTime = toc;         
+            dataFull{indx,sz}.NormalizeHrSignal(1.0);
+
             dataFull{indx,sz}.kalmanSmoothRadarDist();
            % dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
     

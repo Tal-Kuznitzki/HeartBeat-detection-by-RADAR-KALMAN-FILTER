@@ -155,6 +155,7 @@ classdef radarClass < handle
             % Apply the filters to the decimated radar signal
             obj.HrSignal = filtfilt(firL, obj.radar_decimated);
             obj.HrSignal = filtfilt(firH, obj.HrSignal);
+            obj.HrSignal = filtfilt(firL, obj.HrSignal);
         end
 
         %
@@ -228,9 +229,9 @@ classdef radarClass < handle
         end
 
         function FindPeaks(obj)
-            thresholdHr= mean(abs((obj.HrSignal)))*0.05;
+            thresholdHr= mean(abs((obj.HrSignal)))*0.25;
             thresholdRr= mean(abs((obj.RrSignal)))*0.05;
-            [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakHeight",...
+            [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakProminence",...
         thresholdHr,'MinPeakDistance',0.33*obj.fs_new);
             [~,obj.RrPeaks, ~,~] = findpeaks(obj.RrSignal, "MinPeakHeight",...
         thresholdRr,'MinPeakDistance',2*obj.fs_new);
@@ -498,6 +499,30 @@ if isempty(obj.HrEst)
 end
 
 vZ = obj.HrEst(:);
+
+hrMed = movmedian(vZ, 15, 'Endpoints', 'shrink');
+
+% Clip extreme upward spikes before median re-estimation (optional but consistent)
+vZclip = min(vZ, 1.45 * hrMed);
+vZclip = max(vZclip, 0.7 * hrMed);
+
+hrMed = movmedian(vZclip, 15, 'Endpoints', 'shrink');
+
+ratio = vZ ./ max(hrMed, eps);
+
+% Spike detection
+isUpSpike   = ratio > 1.45;
+isDownSpike = ratio < 0.7;
+
+% Measurement noise inflation
+Rk = ones(length(vZ),1);
+
+% Upward spikes
+Rk(isUpSpike) = 2 * min(50, (ratio(isUpSpike) / 1.45).^2);
+
+% Downward spikes (symmetric handling)
+Rk(isDownSpike) = 2 * min(50, (0.7 ./ ratio(isDownSpike)).^2);
+
 n = numel(vZ);
 if n < 4
     obj.HrEstAfterKalman = vZ;
@@ -526,8 +551,8 @@ vQlog = logspace(-4, 1, 40);        % 1e-3..10 (dense)
 vQlin = linspace(10, 100, 20);      % 10..200
 vQ = unique([vQlog, vQlin]);
 
-vRlog = logspace(-4, 1, 25);
-vRlin = linspace(10, 150, 15);
+vRlog = logspace(-4, 1, 35);
+vRlin = linspace(10, 50, 10);
 vR = unique([vRlog, vRlin]);
 
 nQ = numel(vQ);
@@ -572,7 +597,7 @@ for iQ = 1:nQ
 
             % Process noise: ONLY on HRddot
             % Optional: scale with dt (usually helpful)
-            Qk = diag([0, 0, q]) * dt;
+            Qk = diag([0, 0, q]) * dt ;
 
             % Predict
             xk = F*xk;
@@ -583,26 +608,28 @@ for iQ = 1:nQ
                 z = min(max(vZ(k), HRmin), HRmax);
 
                 y = z - H*xk;
-                S = H*Pk*H.' + r;
+                S = H*Pk*H.' + r*Rk(k);
 
-                cost = cost + (y*y) / S;
+                cost = cost+log(S) + (y*y) / S;
 
                 K = (Pk*H.') / S;
                 xk = xk + K*y;
                 Pk = (I3 - K*H) * Pk;
             end
+            
+
 
             % Clamp HR state
             xk(1) = min(max(xk(1), HRmin), HRmax);
             xhat(k) = xk(1);
-            d1 = diff(xhat);
-            smoothPenalty = sum(d1.^2);
-
-            lambda = 0;   % start here, tune 0.005..0.1
-            score = cost + lambda * smoothPenalty;
-
+           
+            
         end
+        d1 = diff(xhat);
+        smoothPenalty = sum(d1(isfinite(d1)).^2);
 
+        lambda = 1e-4;
+        score = cost + lambda * smoothPenalty;
         mCost(iR, iQ) = score; %%%cost
 
         if score < bestCost  %%%cost
@@ -614,9 +641,10 @@ for iQ = 1:nQ
     end
 end
 
+
 obj.HrEstAfterKalman = bestXhat;
-bestQ
-bestR
+bestQ= vQ(bestQ)
+bestR = vR(bestR)
 
 if b_drawGrid == 1
     [Qm, Rm] = meshgrid(vQ, vR);
