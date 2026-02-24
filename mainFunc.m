@@ -13,6 +13,7 @@
 % --- STEP 1: Global Initialization (Run only once) ---
 b_CLEAN_START = false;
 b_reset_filter = false;
+b_ppg
 if b_CLEAN_START
     clc; 
     close all; 
@@ -30,7 +31,7 @@ b_plot_ALL = false;
 
 
 
-IDrange = [2] ; %11:12;  
+IDrange = [1] ; %11:12;  
 scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];

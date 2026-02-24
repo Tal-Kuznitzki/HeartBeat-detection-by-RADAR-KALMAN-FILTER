@@ -10,7 +10,7 @@ classdef radarClass < handle
         radar_i
         radar_q
         radar_dist
-        ecg_gt
+        signal_gt
         resp_gt
         %statistics
         HrEstVar
@@ -19,6 +19,7 @@ classdef radarClass < handle
         DistSNR_HR_dB
         DistPeakToFloor
         DistHrPeakHz
+        b_ppg
 
         %proccessed signals
         radar_decimated
@@ -28,7 +29,7 @@ classdef radarClass < handle
         HrPeaks
         HrPeaksAfterKalman
         RrPeaks
-        ecgPeaks
+        gtPeaks
         Rrpeaks_gt
 
         %results
@@ -67,7 +68,7 @@ classdef radarClass < handle
         
         fs_radar
         fs_new
-        fs_ecg
+        fs_gt
         % filters?
         
     end
@@ -77,33 +78,47 @@ classdef radarClass < handle
     end
     methods
         % constructor: call when making a new object
-        function obj = radarClass(ID,scenario,fs,ecg,radar_i, radar_q,gt_resp)
+        function obj = radarClass(ID,scenario,fs_radar,gtSignal,radar_i, radar_q,gt_resp,b_ppg)
             arguments
                 ID            
                 scenario (1,1) string {mustBeMember(scenario, ["Resting","Valsalva","Apnea","TiltDown","TiltUp"])} 
-                fs {mustBeNonnegative}
-                ecg {mustBeColumn}
+                fs_radar {mustBeNonnegative}
+                gtSignal {mustBeColumn}
                 radar_i {mustBeColumn} 
                 radar_q {mustBeColumn} = 0 %optional, in case we get radar_dist
                 gt_resp{mustBeColumn} = 0 
+                b_ppg {mustBeInteger} = 0
             end
                  %TODO : create the process for getting TFM_respiration
 
             %similliar to getvitalsigns() instead of getting it directly
             obj.ID = string(ID);
-            obj.fs_radar = fs;
-            obj.fs_ecg = fs;
+            obj.fs_radar = fs_radar;
+            obj.fs_gt = fs_radar;
             obj.sceneario = scenario;
-            obj.ecg_gt = ecg;
+            obj.signal_gt = gtSignal;
             obj.resp_gt = gt_resp;
+            obj.b_ppg = b_ppg; % input should  be VideoReader('vid.mp4') 
             if(radar_q==0)
                 obj.radar_dist=radar_i;
                 sprintf('Only one signal detected, saved as radar_dist')
             else
+            if (b_ppg)
+                %convert obj.signal_gt from vid to signal
+                obj.fs_gt = gtSignal.FrameRate;
+                vidLen = gtSignal.Duration;
+                h = gtSignal.Height;
+                w = gtSignal.Width;
+                mVid = read(gtSignal);
+                mRed = squeeze(mVid(:,:,1,:));
+                vRed = double(squeeze(mean(mean(mRed,1),2)));
+                obj.signal_gt = vRed;
+
+            end
             obj.radar_i = radar_i;
             obj.radar_q = radar_q;
             end
-            obj.vTimeOriginal= 1/fs:1/fs:(length(ecg))/fs; % len-1?
+            obj.vTimeOriginal= 1/fs_radar:1/fs_radar:(length(gtSignal))/fs_radar; % len-1?
 
         end
         
@@ -156,6 +171,10 @@ classdef radarClass < handle
             obj.HrSignal = filtfilt(firL, obj.radar_decimated);
             obj.HrSignal = filtfilt(firH, obj.HrSignal);
             obj.HrSignal = filtfilt(firL, obj.HrSignal);
+            %for ppg, moving median of 3 sec to smooth:
+            if(obj.b_ppg) 
+                obj.signal_gt = movmedian(obj.signal_gt,obj.fs_gt*3);
+            end
         end
 
         %
@@ -231,23 +250,31 @@ classdef radarClass < handle
         function FindPeaks(obj)
             thresholdHr= mean(abs((obj.HrSignal)))*0.25;
             thresholdRr= mean(abs((obj.RrSignal)))*0.05;
+            thresholdGt = mean(abs((obj.signal_gt)))*0.25;
             [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakProminence",...
         thresholdHr,'MinPeakDistance',0.33*obj.fs_new);
             [~,obj.RrPeaks, ~,~] = findpeaks(obj.RrSignal, "MinPeakHeight",...
         thresholdRr,'MinPeakDistance',2*obj.fs_new);
-            [~,obj.ecgPeaks,~] = pan_tompkin(obj.ecg_gt,obj.fs_ecg,0); 
+            
+            if(obj.b_ppg)
+               [~,obj.gtPeaks, ~,~] = findpeaks(obj.signal_gt, "MinPeakProminence",...
+        thresholdGt,'MinPeakDistance',0.33*obj.fs_gt);
+            else
+                [~,obj.gtPeaks,~] = pan_tompkin(obj.signal_gt,obj.fs_gt,0); 
+            end
+
             [~,obj.Rrpeaks_gt, ~,~] = findpeaks(obj.resp_gt, "MinPeakHeight",...
         thresholdRr,'MinPeakDistance',2*(obj.fs_new/2.5));          
             obj.HrPeaks = obj.HrPeaks / obj.fs_new;
             obj.RrPeaks = obj.RrPeaks / obj.fs_new; %in seconds 
-            obj.ecgPeaks = obj.ecgPeaks / obj.fs_ecg; % in seconds 
+            obj.gtPeaks = obj.gtPeaks / obj.fs_gt; % in seconds 
             obj.Rrpeaks_gt = obj.Rrpeaks_gt /(100);
         end
 
         % finding the rates
         function FindRates(obj)
             obj.HrEst = 60 ./  diff(obj.HrPeaks);
-            obj.HrGtEst = 60 ./  diff(obj.ecgPeaks); 
+            obj.HrGtEst = 60 ./  diff(obj.gtPeaks); 
             obj.RrEst = 60 ./  diff(obj.RrPeaks);
             obj.RrGtEst = 60 ./ diff(obj.Rrpeaks_gt);            
         end
@@ -447,7 +474,7 @@ function timeFitting(obj)
     tEstPk = obj.HrPeaks(:);                 % seconds
     hrEst  = obj.HrEstAfterKalman;             % bpm
     tEstHr = (tEstPk(1:end-1) + tEstPk(2:end))/2;  % midpoint time per IBI
-    tGtPk = obj.ecgPeaks(:);                % seconds
+    tGtPk = obj.gtPeaks(:);                % seconds
     hrGt  = obj.HrGtEstAfterMedian;
     %hrGt  = obj.HrGtEst(:);
     tGtHr = (tGtPk(1:end-1) + tGtPk(2:end))/2;
@@ -500,7 +527,7 @@ end
 
 vZ = obj.HrEst(:);
 
-hrMed = movmedian(vZ, 15, 'Endpoints', 'shrink');
+hrMed = movmedian(vZ, 35, 'Endpoints', 'shrink');
 
 % Clip extreme upward spikes before median re-estimation (optional but consistent)
 vZclip = min(vZ, 1.45 * hrMed);
@@ -518,10 +545,10 @@ isDownSpike = ratio < 0.7;
 Rk = ones(length(vZ),1);
 
 % Upward spikes
-Rk(isUpSpike) = 2 * min(50, (ratio(isUpSpike) / 1.45).^2);
+Rk(isUpSpike) = 20 * min(50, (ratio(isUpSpike) / 1.45).^2);
 
 % Downward spikes (symmetric handling)
-Rk(isDownSpike) = 2 * min(50, (0.7 ./ ratio(isDownSpike)).^2);
+Rk(isDownSpike) = 20 * min(50, (0.7 ./ ratio(isDownSpike)).^2);
 
 n = numel(vZ);
 if n < 4
@@ -1077,7 +1104,7 @@ function [delay_sec_normal,sign]= FindMechDelay(obj)
     hr_peak_times  = obj.HrPeaks; %sample rate - 100 
     %hr_peak_times_after_kalman = obj.HrPeaksAfterKalman; %sample rate - 100 
 
-    gt_peak_times = obj.ecgPeaks ; % sample rate  - 2000
+    gt_peak_times = obj.gtPeaks ; % sample rate  - 2000
 
     fs_common = 1000;
     max_time = max([max(hr_peak_times), max(gt_peak_times)]);
@@ -1450,11 +1477,11 @@ end
             hold on;
             title(sprintf('ECG Reference Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             
-            plot(obj.vTimeOriginal, obj.ecg_gt, 'k', 'DisplayName', 'ECG Signal');
+            plot(obj.vTimeOriginal, obj.signal_gt, 'k', 'DisplayName', 'Ground Truth Signal');
             
-            if ~isempty(obj.ecgPeaks)
-                peakAmpsEcg = interp1(obj.vTimeOriginal, obj.ecg_gt, obj.ecgPeaks);
-                plot(obj.ecgPeaks, peakAmpsEcg, 'r*', 'MarkerSize', 8, 'DisplayName', 'ECG Peaks');
+            if ~isempty(obj.gtPeaks)
+                peakAmpsEcg = interp1(obj.vTimeOriginal, obj.signal_gt, obj.gtPeaks);
+                plot(obj.gtPeaks, peakAmpsEcg, 'r*', 'MarkerSize', 8, 'DisplayName', 'GT Peaks');
             end
             
             xlabel('Time (s)'); ylabel('Amp');
@@ -1566,10 +1593,10 @@ end
             % 2. ECG reference WITH PEAKS
             ax_link(2) = subplot(4,1,2);
             hold on;
-            plot(obj.vTimeOriginal, obj.ecg_gt, 'k', 'DisplayName', 'ECG Signal');
-            if ~isempty(obj.ecgPeaks)
-                peakAmpsEcg = interp1(obj.vTimeOriginal, obj.ecg_gt, obj.ecgPeaks);
-                plot(obj.ecgPeaks, peakAmpsEcg, 'r*', 'MarkerSize', 8, 'DisplayName', 'QRS Peaks');
+            plot(obj.vTimeOriginal, obj.signal_gt, 'k', 'DisplayName', 'Ground Truth Signal');
+            if ~isempty(obj.gtPeaks)
+                peakAmpsEcg = interp1(obj.vTimeOriginal, obj.signal_gt, obj.gtPeaks);
+                plot(obj.gtPeaks, peakAmpsEcg, 'r*', 'MarkerSize', 8, 'DisplayName', 'GT Peaks');
             end
             title(sprintf('ECG Reference - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             ylabel('Amp'); 
@@ -1580,7 +1607,7 @@ end
             ax_link(3) = subplot(4,1,3);
             hold on;
             if ~isempty(obj.HrGtEst)
-                time_gt_bpm = obj.ecgPeaks(2:end);
+                time_gt_bpm = obj.gtPeaks(2:end);
                 plot(time_gt_bpm, obj.HrGtEstAfterMedian, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'ECG GT (after Median)');
             end
             
@@ -1632,11 +1659,11 @@ end
          ax_link(2) = subplot(2,1,2);
          hold on;
          title('ECG Signal: GT Peaks vs Correlated Radar Peaks');
-         plot(obj.vTimeOriginal, obj.ecg_gt, 'k', 'DisplayName', 'ECG Signal');
+         plot(obj.vTimeOriginal, obj.signal_gt, 'k', 'DisplayName', 'Ground Truth Signal');
          
-         if ~isempty(obj.ecgPeaks)
-             amps = interp1(obj.vTimeOriginal, obj.ecg_gt, obj.ecgPeaks);
-             plot(obj.ecgPeaks, amps, 'bo', 'MarkerSize', 6, 'DisplayName', 'ECG Peaks (GT)');
+         if ~isempty(obj.gtPeaks)
+             amps = interp1(obj.vTimeOriginal, obj.signal_gt, obj.gtPeaks);
+             plot(obj.gtPeaks, amps, 'bo', 'MarkerSize', 6, 'DisplayName', 'GT Peaks');
          end       
          ylabel('Amplitude'); % ADDED
          xlabel('Time (s)');  % ADDED
