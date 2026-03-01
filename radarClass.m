@@ -20,6 +20,7 @@ classdef radarClass < handle
         DistPeakToFloor
         DistHrPeakHz
         b_ppg
+        ref="ECG"
 
         %proccessed signals
         radar_decimated
@@ -113,6 +114,7 @@ classdef radarClass < handle
                 mRed = squeeze(mVid(:,:,1,:));
                 vRed = double(squeeze(mean(mean(mRed,1),2)));
                 obj.signal_gt = vRed;
+                obj.ref = "PPG" ; 
 
             end
             obj.radar_i = radar_i;
@@ -127,14 +129,82 @@ classdef radarClass < handle
 
         % downSample radar dist- accept new fs or use default. change
         % fs_radar accordingly
-        function DS = DownSampleRadar(obj,fs)
+
+        function matFileName = convertS2PtoMAT(obj,s2pFilePath, matFileName)
+            % convertS2PtoMAT: Parses a 2-port Touchstone .s2p file and 
+            % extracts I and Q from the S22 parameter, saving to a .mat file.
+            
+            % Read the numeric data matrix, ignoring '!' and '#' comment lines
+            opts = detectImportOptions(s2pFilePath, 'FileType', 'text');
+            opts.CommentStyle = {'!', '#'};
+            data = readmatrix(s2pFilePath, opts);
+            
+            % Check that we have the 9 columns (Freq, S11_MA, S21_MA, S12_MA, S22_MA)
+            if size(data, 2) >= 9
+                data(any(isnan(data), 2), :) = [];
+                S22_mag = data(:, 8);
+                S22_ang_deg = data(:, 9);
+            else
+                error('Unexpected .s2p data format. Expected 9 columns.');
+            end
+            
+            % Convert MA (Magnitude-Angle) to I and Q components
+            obj.radar_i = S22_mag .* cosd(S22_ang_deg);
+            obj.radar_q = S22_mag .* sind(S22_ang_deg);
+            
+            % Mock ground truth arrays to keep the constructor happy
+            obj.signal_gt = zeros(size(obj.radar_i));
+            obj.resp_gt = zeros(size(obj.radar_i));
+            
+            % Default fs (you can adjust this if your s2p samples are captured at a different rate)
+            obj.fs_radar = 100; 
+            
+
+            radar_i = obj.radar_i;
+            radar_q = obj.radar_q;
+            signal_gt = obj.signal_gt;
+            resp_gt = obj.resp_gt;
+            fs_radar = obj.fs_radar;
+
+            
+            % Save to the standard .mat format expected by the rest of the script
+            save(matFileName, 'radar_i', 'radar_q', 'signal_gt', 'resp_gt', 'fs_radar');
+            fprintf('Successfully converted %s to %s\n', s2pFilePath, matFileName);
+        end
+       function calculateRadarDistFromIQ(obj) %%REWORK
+            % Calculates the relative distance using arctangent demodulation
+            
+            % 1. Complex representation (Eq. 3 & Eq. 4)
+            Z = obj.radar_i(:) + 1i * obj.radar_q(:);
+            
+            % 2. Arctangent demodulation to extract phase
+            phase_rad = angle(Z);
+            
+            % 3. Unwrap phase to handle boundary jumps
+            unwrapped_phase = unwrap(phase_rad);
+            
+            % 4. Convert phase to distance (Eq. 5)
+            c = 3e8; % Speed of light in m/s
+            f = 24.17e9; % Operating frequency of 24.17 GHz
+            lambda = c / f;
+            
+            % Calculate relative distance
+            obj.radar_dist = (unwrapped_phase / (2*pi)) * (lambda / 2);
+        end
+function DS = DownSampleRadar(obj,fs)
             if(nargin<2 || isempty(fs))
                 fs=100;
 
             end
             DS=obj.fs_radar/fs;
-            %sprintf('Set new radar fs to %d',fs)
+            dist_clean = obj.radar_dist(:);
+            dist_clean(~isfinite(dist_clean)) = 0;
+
+            if DS>1 
             obj.radar_decimated = decimate(obj.radar_dist, DS);
+            else
+                obj.radar_decimated = dist_clean;
+            end
             obj.fs_new = fs;
             obj.vTimeNew = 1/fs:1/fs:length(obj.radar_decimated)/fs; %len-1?
         end
@@ -249,12 +319,12 @@ classdef radarClass < handle
 
         function FindPeaks(obj)
             thresholdHr= mean(abs((obj.HrSignal)))*0.25;
-            thresholdRr= mean(abs((obj.RrSignal)))*0.05;
-            thresholdGt = mean(abs((obj.signal_gt)))*0.25;
-            [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakProminence",...
+            %thresholdRr= mean(abs((obj.RrSignal)))*0.05;
+          %  thresholdGt = mean(abs((obj.signal_gt)))*0.25;
+           [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakProminence",...
         thresholdHr,'MinPeakDistance',0.33*obj.fs_new);
-            [~,obj.RrPeaks, ~,~] = findpeaks(obj.RrSignal, "MinPeakHeight",...
-        thresholdRr,'MinPeakDistance',2*obj.fs_new);
+           % [~,obj.RrPeaks, ~,~] = findpeaks(obj.RrSignal, "MinPeakHeight",...
+           %  thresholdRr,'MinPeakDistance',2*obj.fs_new);
             
             if(obj.b_ppg)
                [~,obj.gtPeaks, ~,~] = findpeaks(obj.signal_gt, "MinPeakProminence",...
@@ -275,8 +345,8 @@ classdef radarClass < handle
         function FindRates(obj)
             obj.HrEst = 60 ./  diff(obj.HrPeaks);
             obj.HrGtEst = 60 ./  diff(obj.gtPeaks); 
-            obj.RrEst = 60 ./  diff(obj.RrPeaks);
-            obj.RrGtEst = 60 ./ diff(obj.Rrpeaks_gt);            
+   %         obj.RrEst = 60 ./  diff(obj.RrPeaks);
+   %         obj.RrGtEst = 60 ./ diff(obj.Rrpeaks_gt);            
         end
         function ComputePreFilterStats(obj)
             % ComputePreFilterStats
@@ -1467,7 +1537,6 @@ end
                 plot(obj.HrPeaks, peakAmps*1e4, 'r*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks'); 
                 plot(obj.HrPeaksAfterKalman, peakAmpsAfterKalman*1e4, 'go', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks after kalman filter'); 
             end
-            
             ylabel('Amp (scaled)');
             xlabel('Time (s)'); 
             legend('show', 'Location', 'best'); grid on; hold off;
@@ -1475,7 +1544,7 @@ end
             % Subplot 2: ECG Reference
             ax(2) = subplot(2,1,2);
             hold on;
-            title(sprintf('ECG Reference Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            title(sprintf('%s Reference Signal - ID: %s, Scenario: %s',string(obj.ref), string(obj.ID), obj.sceneario));
             
             plot(obj.vTimeOriginal, obj.signal_gt, 'k', 'DisplayName', 'Ground Truth Signal');
             
@@ -1598,7 +1667,7 @@ end
                 peakAmpsEcg = interp1(obj.vTimeOriginal, obj.signal_gt, obj.gtPeaks);
                 plot(obj.gtPeaks, peakAmpsEcg, 'r*', 'MarkerSize', 8, 'DisplayName', 'GT Peaks');
             end
-            title(sprintf('ECG Reference - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            title(sprintf('%s Reference - ID: %s, Scenario: %s',string(obj.ref), string(obj.ID), obj.sceneario));
             ylabel('Amp'); 
             xlabel('Time (s)'); % ADDED
             legend('show', 'Location', 'best'); grid on; axis tight; hold off;
@@ -1608,7 +1677,7 @@ end
             hold on;
             if ~isempty(obj.HrGtEst)
                 time_gt_bpm = obj.gtPeaks(2:end);
-                plot(time_gt_bpm, obj.HrGtEstAfterMedian, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'ECG GT (after Median)');
+                plot(time_gt_bpm, obj.HrGtEstAfterMedian, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'ECG/PPG GT (after Median)');
             end
             
             plot(timeToCompare,HrToCompare, 'b.--', 'LineWidth', 1.2, 'DisplayName', name);
@@ -1658,7 +1727,7 @@ end
          % Subplot 2
          ax_link(2) = subplot(2,1,2);
          hold on;
-         title('ECG Signal: GT Peaks vs Correlated Radar Peaks');
+         title('%s Signal: GT Peaks vs Correlated Radar Peaks',string(obj.ref));
          plot(obj.vTimeOriginal, obj.signal_gt, 'k', 'DisplayName', 'Ground Truth Signal');
          
          if ~isempty(obj.gtPeaks)
@@ -1721,9 +1790,9 @@ end
             end
             yline(0, 'r--', 'LineWidth', 1.5);
             % Updated Title with ID and Scenario
-            title(sprintf('Raw Error (Bias) vs ECG HR - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            title(sprintf('Raw Error (Bias) vs %s HR - ID: %s, Scenario: %s',string(obj.ref), string(obj.ID), obj.sceneario));
             ylabel('Error');
-            xlabel('ECG Heart Rate (BPM)');
+            xlabel('%s Heart Rate (BPM)',string(obj.ref));
             legend('Raw Error', 'Zero Line', 'Location', 'best');
             
             % --- Subplot 2: Absolute Error vs HR (The "MAE" request) ---
@@ -1733,9 +1802,9 @@ end
                 plot(obj.mae2Hr(:,1), obj.mae2Hr(:,2), 'ko', 'MarkerFaceColor', 'g', 'MarkerSize', 4);
             end
             % Updated Title with ID and Scenario
-            title(sprintf('Absolute Error (Magnitude) vs ECG HR - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+            title(sprintf('Absolute Error (Magnitude) vs %s HR - ID: %s, Scenario: %s',string(obj.ref), string(obj.ID), obj.sceneario));
             ylabel('|Error| ');
-            xlabel('ECG Heart Rate (BPM)');
+            xlabel('%s Heart Rate (BPM)',string(obj.ref));
             yline(mean(obj.mae2Hr(:,2)), 'm--', 'DisplayName', 'Mean (MAE)');
             legend('Abs Error', 'MAE Level', 'Location', 'best');
 
@@ -1746,8 +1815,8 @@ end
                 plot(obj.mse2Hr(:,1), obj.mse2Hr(:,2), 'ko', 'MarkerFaceColor', 'r', 'MarkerSize', 4);
             end
             % Updated Title with ID and Scenario
-            title(sprintf('Squared Error (Outliers) vs ECG HR - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
-            xlabel('ECG Heart Rate (BPM)');
+            title(sprintf('Squared Error (Outliers) vs %s HR - ID: %s, Scenario: %s',string(obj.ref), string(obj.ID), obj.sceneario));
+            xlabel('%s Heart Rate (BPM)',string(obj.ref));
             ylabel('Error^2');
             
             % Print Stats
@@ -1903,9 +1972,6 @@ end
     text(0,0.05, 'Vectors trimmed to same length; NaNs removed');
 
 end
-
-
-
 
         %% Save Figures
        function [] = saveFigures(obj, figHandles, saveDir)

@@ -13,7 +13,8 @@
 % --- STEP 1: Global Initialization (Run only once) ---
 b_CLEAN_START = false;
 b_reset_filter = false;
-b_ppg
+b_ppg = false;
+b_s2p = false; 
 if b_CLEAN_START
     clc; 
     close all; 
@@ -31,7 +32,7 @@ b_plot_ALL = false;
 
 
 
-IDrange = [1] ; %11:12;  
+IDrange = [42] ; %11:12;  
 scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
@@ -71,65 +72,86 @@ end
 dataFull=cell(length(IDrange), numel(scenarios) ); %a cell for each struct
 
 for indx = 1:length(IDrange)
-    ID = sprintf('GDN%04d',IDrange(indx));
+    numericID = IDrange(indx);
+    ID = sprintf('GDN%04d', numericID); % e.g., GDN0041
+    path_id = fullfile(path, ID);       % e.g., project_data/GDN0041
+    
     fprintf('----------- Loading %s ------------\n', ID);
     
+    % Check if this subject requires S2P parsing
+    b_s2p = (numericID >= 41); 
+
     for sz = 1:length(scenarios)
         scenario = scenarios{sz};
         fprintf('---- Scenario %s\n', scenario);
-         % --- FIX 1: Initialize as an Object Array ---
-        % 'gobjects(0)' creates an empty array specifically for Graphics Objects.
-        % This prevents it from accidentally becoming a numeric array (doubles).
+        
         current_figures = gobjects(0); 
         
-        path_id = [path,'\',ID];
-        files_synced_mat = dir([path_id,'\*.mat']);
-        found = [];
-        for j = 1:length(files_synced_mat)
-            found = strfind(files_synced_mat(j).name,scenario);
-            if ~isempty(found)
-                load([path_id,'\',files_synced_mat(j).name]);
-                break;
+        if b_s2p
+            %% --- NEW S2P LOGIC (INSTANCE METHOD) ---
+            s2pFileName = fullfile(path_id, sprintf('GD%04d_%s.s2p', numericID, scenario));
+            matFileName = fullfile(path_id, sprintf('GDN%04d_3_%s.mat', numericID, scenario));
+            
+            % 1. Instantiate the patient object first with dummy values 
+            % (0 satisfies the {mustBeColumn} argument restrictions)
+            dataFull{indx,sz} = radarClass(ID, scenario, 100, 0, 0, 0, 0);
+            
+            % 2. Parse the S2P data directly into the patient object's properties
+            if exist(s2pFileName, 'file') && ~exist(matFileName, 'file')
+                dataFull{indx,sz}.convertS2PtoMAT(s2pFileName, matFileName);
+            elseif exist(matFileName, 'file')
+                % If previously converted, load the MAT file and manually assign to properties
+                load(matFileName);
+                dataFull{indx,sz}.radar_i = radar_i;
+                dataFull{indx,sz}.radar_q = radar_q;
+                dataFull{indx,sz}.fs_radar = fs_radar;
+                dataFull{indx,sz}.signal_gt = signal_gt;
+                dataFull{indx,sz}.resp_gt = resp_gt;
+            else
+                warning('S2P file %s not found. Skipping.', s2pFileName);
+                continue;
             end
-        end
-        if isempty(found)
-            fprintf('---- skipped\n');
-            continue
-        end
-        
-%% 3. original code for reference
-        output.(ID).(scenario) = struct;
-        [radar_i_compensated,radar_q_compensated,phase_compensated,radar_dist] = elreko(radar_i,radar_q,measurement_info{1},0);
-        [radar_respiration, radar_pulse, radar_heartsound, tfm_respiration] = getVitalSigns(radar_dist, fs_radar, tfm_z0, fs_z0);
-      
-        if ECG_CHANNEL(IDrange(indx)) == 1
-            tfm_ecg = fillmissing(tfm_ecg1,'constant',0); 
+            
+            % 3. Calculate distance from the freshly loaded I/Q data
+            dataFull{indx,sz}.calculateRadarDistFromIQ();
+            
         else
-            tfm_ecg = fillmissing(tfm_ecg2,'constant',0); 
+            %% --- LEGACY .MAT LOGIC ---
+            files_synced_mat = dir(fullfile(path_id, sprintf('*%s*.mat', scenario)));
+            if isempty(files_synced_mat)
+                fprintf('---- skipped\n');
+                continue;
+            end
+            
+            load(fullfile(path_id, files_synced_mat(1).name));
+            output.(ID).(scenario) = struct;
+            
+            [radar_i_compensated,radar_q_compensated,phase_compensated,radar_dist] = elreko(radar_i,radar_q,measurement_info{1},0);
+            [radar_respiration, radar_pulse, radar_heartsound, tfm_respiration] = getVitalSigns(radar_dist, fs_radar, tfm_z0, fs_z0);
+          
+            if ECG_CHANNEL(numericID) == 1
+                tfm_ecg = fillmissing(tfm_ecg1,'constant',0); 
+            else
+                tfm_ecg = fillmissing(tfm_ecg2,'constant',0); 
+            end
+            tfm_ecg = filtButter(tfm_ecg,fs_ecg,4,[1 20],'bandpass');
+            
+            % Initialize object
+            if (numericID==10 && scenario=="TiltDown")
+                dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg(2000:end),radar_dist(2000:end),0,tfm_respiration);
+            else
+                dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration);
+            end
+            dataFull{indx,sz}.radar_i = radar_i;
+            dataFull{indx,sz}.radar_q = radar_q;
         end
-        tfm_ecg = filtButter(tfm_ecg,fs_ecg,4,[1 20],'bandpass');
-        time_respiration = 1/fs_z0:1/fs_z0:length(tfm_respiration)/fs_z0;
-        time_ecg = 1/fs_ecg:1/fs_ecg:length(tfm_ecg)/fs_ecg;
-        
-%% 4. initial Radar processing
- %%% TODO: get our own radar_dist
-        %TODO: here it is still -1 
-        if (IDrange(indx)==10 && scenario=="TiltDown")
-              dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg(2000:end),radar_dist(2000:end),0,tfm_respiration);
-        else
-            dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration);
-        end
-         dataFull{indx,sz}.radar_i = radar_i;
-         dataFull{indx,sz}.radar_q = radar_q;
-
-%% 5. frequency domain processing
+        %% 5. frequency domain processing
         tic
-        dataFull{indx,sz}.DownSampleRadar(resampleFS);
+        dataFull{indx,sz}.DownSampleRadar(resampleFS)
         dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
-        dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
+        %dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
         dataFull{indx,sz}.NormalizeHrSignal(1.0);
         filteringTime = toc;         
-        %dataFull{indx,sz}.kalmanSmoothRadarDist(); %//WHY ? 
       %  dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
      %% 6. time analysis
        
@@ -149,7 +171,7 @@ for indx = 1:length(IDrange)
         
             dataFull{indx,sz}.DownSampleRadar(resampleFS);
             dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
-            dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
+            %dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
             filteringTime = toc;         
             dataFull{indx,sz}.NormalizeHrSignal(1.0);
 
