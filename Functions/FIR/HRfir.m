@@ -18,11 +18,11 @@ StopbandAttenuationL=80;
 
 firH = designfilt('highpassfir','StopbandFrequency',StopbandFrequencyH,...
     'PassbandFrequency',PassbandFrequencyH,'StopbandAttenuation',StopbandAttenuationH, ...
-        'SampleRate',fs,'passbandRipple',0.05);
+        'SampleRate',fs,'FilterOrder',50);
 
 firL = designfilt('lowpassfir','PassbandFrequency',PassbandFrequencyL,...
     'StopbandFrequency',StopbandFrequencyL,'StopbandAttenuation',StopbandAttenuationL, ...
-        'SampleRate',fs,'passbandRipple',0.05);
+        'SampleRate',fs,'FilterOrder',50);
 
 
 

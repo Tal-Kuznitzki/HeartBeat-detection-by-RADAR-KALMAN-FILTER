@@ -27,7 +27,7 @@ end
 b_CLEAR_OLD = false;
 b_plot_ALL = false;
 
-IDrange = [1,41,42,43,44] ; %11:12;  
+IDrange = [41,42,43,44] ; %11:12;  
 
 scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
@@ -80,15 +80,21 @@ for indx = 1:length(IDrange)
         if b_lab
             %% --- NEW S2P LOGIC (INSTANCE METHOD) ---
             s2pFileName = fullfile(path_id, sprintf('GD%04d_%s.s2p', numericID, scenario));
-            matFileName = fullfile(path_id, sprintf('GDN%04d_3_%s.mat', numericID, scenario));
-            mVideoPPG = VideoReader(fullfile(path_id, sprintf('GDN%04d_3_%s.mp4', numericID, scenario)));
-            tfm_ecg = mVideoPPG;
+            matFileName = fullfile(path_id, sprintf('GDN%04d_%s.mat', numericID, scenario));
+            vidFileName = (fullfile(path_id, sprintf('GD%04d_%s.mp4', numericID, scenario)));
+
+           
             if exist(s2pFileName, 'file') && ~exist(matFileName, 'file')
                 [~,radar_i,radar_q] = convertS2PtoMAT(s2pFileName, matFileName);
             else
                 warning('S2P file %s not found. Skipping.', s2pFileName);
-                continue;
             end
+
+            mVideoPPG = VideoReader(vidFileName);
+            tfm_ecg =   mVideoPPG;
+            fs_radar =  load(matFileName,'fs_radar');
+            fs_radar = fs_radar.fs_radar;
+
             dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_i,radar_q,0,b_lab);
             dataFull{indx,sz}.calculateRadarDistFromIQ();
             
@@ -124,7 +130,7 @@ for indx = 1:length(IDrange)
         dataFull{indx,sz}.NormalizeHrSignal(1.0); 
         if ~b_lab
         dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
-        dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
+ %      dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
         end
       filtering_time=toc;
      %% 6. time analysis
@@ -153,7 +159,7 @@ for indx = 1:length(IDrange)
             dataFull{indx,sz}.kalmanSmoothRadarDist();
             if ~b_lab 
                 dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
-                dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
+%                dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
             end
            
     

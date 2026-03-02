@@ -115,12 +115,14 @@ classdef radarClass < handle
                 vRed = double(squeeze(mean(mean(mRed,1),2)));
                 obj.signal_gt = vRed;
                 obj.ref = "PPG" ; 
+                gtSignal=vRed;
 
             end
             obj.radar_i = radar_i;
             obj.radar_q = radar_q;
             end
-            obj.vTimeOriginal= 1/fs_radar:1/fs_radar:(length(gtSignal))/fs_radar; % len-1?
+            fs_gt= obj.fs_gt;
+            obj.vTimeOriginal= 1/fs_gt:1/fs_gt:(length(gtSignal))/fs_gt; % len-1?
 
         end
         
@@ -243,7 +245,7 @@ function DS = DownSampleRadar(obj,fs)
             obj.HrSignal = filtfilt(firL, obj.HrSignal);
             %for ppg, moving median of 3 sec to smooth:
             if(obj.b_ppg) 
-                obj.signal_gt = movmedian(obj.signal_gt,obj.fs_gt*3);
+                obj.signal_gt =obj.signal_gt-medfilt1(obj.signal_gt,floor(obj.fs_gt*5));%-mean(obj.signal_gt);
             end
         end
 
@@ -327,7 +329,7 @@ function DS = DownSampleRadar(obj,fs)
            %  thresholdRr,'MinPeakDistance',2*obj.fs_new);
             
             if(obj.b_ppg)
-               thresholdGt = mean(abs((obj.signal_gt)))*0.25;
+               thresholdGt = mean(abs((obj.signal_gt)))*0.05;
                [~,obj.gtPeaks, ~,~] = findpeaks(obj.signal_gt, "MinPeakProminence",...
         thresholdGt,'MinPeakDistance',0.33*obj.fs_gt);
             else

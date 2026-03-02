@@ -21,8 +21,8 @@ function [matFileName,radar_i,radar_q] = convertS2PtoMAT(s2pFilePath, matFileNam
             radar_q = S22_mag .* sind(S22_ang_deg);
             
             % Mock ground truth arrays to keep the constructor happy
-            signal_gt = zeros(size(obj.radar_i));
-            resp_gt = zeros(size(obj.radar_i));
+            signal_gt = zeros(size(radar_i));
+            resp_gt = zeros(size(radar_i));
             
             % Default fs (you can adjust this if your s2p samples are captured at a different rate)
             fs_radar = 100;             
