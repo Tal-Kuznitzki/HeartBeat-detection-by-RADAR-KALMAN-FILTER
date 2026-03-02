@@ -26,12 +26,12 @@ classdef radarClass < handle
         radar_decimated
         HrSignal
         KF_HrSignal
-        RrSignal
+        RespSignal
         HrPeaks
         HrPeaksAfterKalman
-        RrPeaks
+        RespPeaks
         gtPeaks
-        Rrpeaks_gt
+        RespPeaks_gt
 
         %results
         HrEst
@@ -47,9 +47,9 @@ classdef radarClass < handle
         kalmanCorrValue
         medianCorrValue
         %TODO- show results with these 2 vectors
-        RrEst
+        RespEst
         HrGtEst
-        RrGtEst
+        RespGtEst
         HrGtMean
         HrGtDiff
         mseRaw
@@ -271,8 +271,8 @@ function DS = DownSampleRadar(obj,fs)
             end
             % Apply the filters to the decimated radar signal
             
-            obj.RrSignal = filtfilt(firL, obj.radar_decimated);
-            obj.RrSignal = filtfilt(firH, obj.RrSignal);
+            obj.RespSignal = filtfilt(firL, obj.radar_decimated);
+            obj.RespSignal = filtfilt(firH, obj.RespSignal);
         end
         %finding the peaks and normalize to seconds
         function NormalizeHrSignal(obj, winSec)
@@ -320,26 +320,28 @@ function DS = DownSampleRadar(obj,fs)
 
         function FindPeaks(obj) %TODO: move all commented code to if and else 
             thresholdHr= mean(abs((obj.HrSignal)))*0.25;
-            thresholdRr= mean(abs((obj.RrSignal)))*0.05;
-            thresholdGt = mean(abs((obj.signal_gt)))*0.25;
+            thresholdRr= mean(abs((obj.RespSignal)))*0.05;
            [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakProminence",...
         thresholdHr,'MinPeakDistance',0.33*obj.fs_new);
            % [~,obj.RrPeaks, ~,~] = findpeaks(obj.RrSignal, "MinPeakHeight",...
            %  thresholdRr,'MinPeakDistance',2*obj.fs_new);
             
             if(obj.b_ppg)
+               thresholdGt = mean(abs((obj.signal_gt)))*0.25;
                [~,obj.gtPeaks, ~,~] = findpeaks(obj.signal_gt, "MinPeakProminence",...
         thresholdGt,'MinPeakDistance',0.33*obj.fs_gt);
             else
-                [~,obj.gtPeaks,~] = pan_tompkin(obj.signal_gt,obj.fs_gt,0); 
+                [~,obj.gtPeaks,~] = pan_tompkin(obj.signal_gt,obj.fs_gt,0);
+                [~,obj.RespPeaks_gt, ~,~] = findpeaks(obj.resp_gt, "MinPeakHeight",...
+                thresholdRr,'MinPeakDistance',2*(obj.fs_new/2.5));
+                obj.RespPeaks_gt = obj.RespPeaks_gt /(100);
             end
 
-            [~,obj.Rrpeaks_gt, ~,~] = findpeaks(obj.resp_gt, "MinPeakHeight",...
-        thresholdRr,'MinPeakDistance',2*(obj.fs_new/2.5));          
+                 
             obj.HrPeaks = obj.HrPeaks / obj.fs_new;
-            obj.RrPeaks = obj.RrPeaks / obj.fs_new; %in seconds 
+            obj.RespPeaks = obj.RespPeaks / obj.fs_new; %in seconds 
             obj.gtPeaks = obj.gtPeaks / obj.fs_gt; % in seconds 
-            obj.Rrpeaks_gt = obj.Rrpeaks_gt /(100);
+            
         end
 
         % finding the rates
@@ -1585,12 +1587,12 @@ end
             hold on;
             title(sprintf('Respiration Rate Comparison - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
            
-            if ~isempty(obj.RrEst)
-                plot(obj.RrEst, 'b.-', 'LineWidth', 1.5, 'DisplayName', 'Radar Respiration');
+            if ~isempty(obj.RespEst)
+                plot(obj.RespEst, 'b.-', 'LineWidth', 1.5, 'DisplayName', 'Radar Respiration');
             end
 
-            if ~isempty(obj.RrGtEst)
-                 plot(obj.RrGtEst, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'TFM Respiration');           
+            if ~isempty(obj.RespGtEst)
+                 plot(obj.RespGtEst, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'TFM Respiration');           
             end
             ylabel('Breaths Per Minute'); 
             xlabel('Window Index / Time');
@@ -1609,10 +1611,10 @@ end
             hold on;
             title(sprintf('Radar Respiration Signal - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
             
-            plot(obj.vTimeNew, obj.RrSignal, 'b-', 'DisplayName', 'Respiration Signal');
-            if ~isempty(obj.RrPeaks)
-                peakAmps = interp1(obj.vTimeNew, obj.RrSignal, obj.RrPeaks);
-                plot(obj.RrPeaks, peakAmps, 'k*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
+            plot(obj.vTimeNew, obj.RespSignal, 'b-', 'DisplayName', 'Respiration Signal');
+            if ~isempty(obj.RespPeaks)
+                peakAmps = interp1(obj.vTimeNew, obj.RespSignal, obj.RespPeaks);
+                plot(obj.RespPeaks, peakAmps, 'k*', 'MarkerSize', 8, 'DisplayName', 'Radar Peaks');
             end
             ylabel('Rel. Distance(mm)');
             xlabel('Time (s)'); % ADDED
@@ -1627,9 +1629,9 @@ end
             time_respiration = 1/100:1/100:length(obj.resp_gt)/100;
             
             plot(time_respiration, obj.resp_gt, 'r-', 'DisplayName', 'GT Signal');
-            if ~isempty(obj.Rrpeaks_gt)
-                peakAmps = interp1(time_respiration, obj.resp_gt, obj.Rrpeaks_gt);
-                plot(obj.Rrpeaks_gt, peakAmps , 'k*', 'MarkerSize', 8, 'DisplayName', 'GT Peaks');
+            if (~isempty(obj.RespPeaks_gt)&& obj.b_ppg==0)
+                peakAmps = interp1(time_respiration, obj.resp_gt, obj.RespPeaks_gt);
+                plot(obj.RespPeaks_gt, peakAmps , 'k*', 'MarkerSize', 8, 'DisplayName', 'GT Peaks');
             end
             
             ylabel('Rel. Distance(mm)');
