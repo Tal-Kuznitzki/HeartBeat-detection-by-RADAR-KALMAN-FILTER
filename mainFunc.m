@@ -27,17 +27,12 @@ end
 b_CLEAR_OLD = false;
 b_plot_ALL = false;
 
-
-
-
-
 IDrange = [1,41,42,43,44] ; %11:12;  
 
 scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
-b_USE_PAPER_DATA=1;
 resampleFS=100; 
 
 scrsz = get(groot,'ScreenSize');
@@ -66,7 +61,7 @@ dataFull=cell(length(IDrange), numel(scenarios)); %a cell for each struct
 
 for indx = 1:length(IDrange)
     numericID = IDrange(indx);
-    b_s2p = (numericID > 40); 
+    b_lab = (numericID > 40); 
 
     ID = sprintf('GDN%04d', numericID); % e.g., GDN0041
     path_id = fullfile(path, ID);       % e.g., project_data/GDN0041
@@ -82,23 +77,19 @@ for indx = 1:length(IDrange)
         
         current_figures = gobjects(0); 
         
-        if b_s2p
+        if b_lab
             %% --- NEW S2P LOGIC (INSTANCE METHOD) ---
             s2pFileName = fullfile(path_id, sprintf('GD%04d_%s.s2p', numericID, scenario));
             matFileName = fullfile(path_id, sprintf('GDN%04d_3_%s.mat', numericID, scenario));
             mVideoPPG = VideoReader(fullfile(path_id, sprintf('GDN%04d_3_%s.mp4', numericID, scenario)));
-                     
-            
-            % 2. Parse the S2P data directly into the patient object's properties
+            tfm_ecg = mVideoPPG;
             if exist(s2pFileName, 'file') && ~exist(matFileName, 'file')
-                %dataFull{indx,sz}.convertS2PtoMAT(s2pFileName, matFileName);
-                convertS2PtoMAT(s2pFileName, matFileName);
+                [~,radar_i,radar_q] = convertS2PtoMAT(s2pFileName, matFileName);
             else
                 warning('S2P file %s not found. Skipping.', s2pFileName);
                 continue;
             end
-            
-            % 3. Calculate distance from the freshly loaded I/Q data
+            dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_i,radar_q,0,b_lab);
             dataFull{indx,sz}.calculateRadarDistFromIQ();
             
         else
@@ -108,39 +99,34 @@ for indx = 1:length(IDrange)
                 fprintf('---- skipped\n');
                 continue;
             end
-            
             load(fullfile(path_id, files_synced_mat(1).name));
             output.(ID).(scenario) = struct;
-            
-            [radar_i_compensated,radar_q_compensated,phase_compensated,radar_dist] = elreko(radar_i,radar_q,measurement_info{1},0);
-            [radar_respiration, radar_pulse, radar_heartsound, tfm_respiration] = getVitalSigns(radar_dist, fs_radar, tfm_z0, fs_z0);
-            if(b_s2p)
-                tfm_ecg = mVideoPPG;
-            else
-                if ECG_CHANNEL(numericID) == 1
+               [radar_i_compensated,radar_q_compensated,phase_compensated,radar_dist] = elreko(radar_i,radar_q,measurement_info{1},0);
+               [radar_respiration, radar_pulse, radar_heartsound, tfm_respiration] = getVitalSigns(radar_dist, fs_radar, tfm_z0, fs_z0);
+               if ECG_CHANNEL(numericID) == 1
                     tfm_ecg = fillmissing(tfm_ecg1,'constant',0); 
                 else
                     tfm_ecg = fillmissing(tfm_ecg2,'constant',0); 
                 end
                 tfm_ecg = filtButter(tfm_ecg,fs_ecg,4,[1 20],'bandpass');
-            end
-            % Initialize object
-            if (numericID==10 && scenario=="TiltDown")
-                dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg(2000:end),radar_dist(2000:end),0,tfm_respiration);
-            else
-                dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration,b_s2p);
-            end
-            dataFull{indx,sz}.radar_i = radar_i;
-            dataFull{indx,sz}.radar_q = radar_q;
-        end
+                 if (numericID==10 && scenario=="TiltDown")
+                    tfm_ecg=tfm_ecg(2000:end);
+                    radar_dist=radar_dist(2000:end);
+                 end
+                % Init obj
+                dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration,b_lab);
+         end
+    end
         %% 5. frequency domain processing
         tic
         dataFull{indx,sz}.DownSampleRadar(resampleFS)
         dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
-        %dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
-        dataFull{indx,sz}.NormalizeHrSignal(1.0);
-        filteringTime = toc;         
-      %  dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
+        dataFull{indx,sz}.NormalizeHrSignal(1.0); 
+        if ~b_lab
+        dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
+        dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
+        end
+      filtering_time=toc;
      %% 6. time analysis
        
         dataFull{indx,sz}.FindPeaks(); 
@@ -159,12 +145,17 @@ for indx = 1:length(IDrange)
         
             dataFull{indx,sz}.DownSampleRadar(resampleFS);
             dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
-            %dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
+            
+
             filteringTime = toc;         
             dataFull{indx,sz}.NormalizeHrSignal(1.0);
 
             dataFull{indx,sz}.kalmanSmoothRadarDist();
-           % dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
+            if ~b_lab 
+                dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
+                dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
+            end
+           
     
         end
         dataFull{indx,sz}.FindPeaks(); 
@@ -193,6 +184,7 @@ for indx = 1:length(IDrange)
         % Apply them
         q_auto
         r_auto
+        
         dataFull{indx,sz}.kalmanFilterBeats(q_auto,r_auto) 
         dataFull{indx,sz}.KalmanFilterHrGrid(1); %1 to draw CAF NEW
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
@@ -210,14 +202,8 @@ for indx = 1:length(IDrange)
          dataFull{indx,sz}.plot_examples();
         %%
         % show all results with CorrGt and CorrKalmanHr
-    
-
-        
         dataFull{indx,sz}.CalcError(dataFull{indx,sz}.CorrKalmanHr_on_gt_time);
-
-
         %dataFull{indx,sz}.PlotHrCovAndBA();
-
         % % dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
         % %    'HR after Kalman & time fit',...
         % %     dataFull{indx,sz}.CorrKalmanHr_on_gt_time,...
@@ -241,7 +227,6 @@ for indx = 1:length(IDrange)
        % 
        %   end
        % end
-    end
 end
    
 % %% CAF on different values

@@ -1,4 +1,4 @@
-function matFileName = convertS2PtoMAT(s2pFilePath, matFileName)
+function [matFileName,radar_i,radar_q] = convertS2PtoMAT(s2pFilePath, matFileName)
             % convertS2PtoMAT: Parses a 2-port Touchstone .s2p file and 
             % extracts I and Q from the S22 parameter, saving to a .mat file.
             
@@ -25,16 +25,7 @@ function matFileName = convertS2PtoMAT(s2pFilePath, matFileName)
             resp_gt = zeros(size(obj.radar_i));
             
             % Default fs (you can adjust this if your s2p samples are captured at a different rate)
-            fs_radar = 100; 
-            
-
-            % radar_i = obj.radar_i;
-            % radar_q = obj.radar_q;
-            % signal_gt = obj.signal_gt;
-            % resp_gt = obj.resp_gt;
-            % fs_radar = obj.fs_radar;
-
-            
+            fs_radar = 100;             
             % Save to the standard .mat format expected by the rest of the script
             save(matFileName, 'radar_i', 'radar_q', 'signal_gt', 'resp_gt', 'fs_radar');
             fprintf('Successfully converted %s to %s\n', s2pFilePath, matFileName);
