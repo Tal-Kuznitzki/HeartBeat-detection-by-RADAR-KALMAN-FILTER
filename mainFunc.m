@@ -13,8 +13,7 @@
 % --- STEP 1: Global Initialization (Run only once) ---
 b_CLEAN_START = false;
 b_reset_filter = false;
-b_ppg = false;
-b_s2p = false; 
+
 if b_CLEAN_START
     clc; 
     close all; 
@@ -32,28 +31,22 @@ b_plot_ALL = false;
 
 
 
-IDrange = [42] ; %11:12;  
+IDrange = [1,41,42,43,44] ; %11:12;  
+
 scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 b_USE_PAPER_DATA=1;
 resampleFS=100; 
-qGridSize = length( 0.5:0.25:15);
-mMseGrid = inf(qGridSize,qGridSize,length(IDrange));
 
 scrsz = get(groot,'ScreenSize');
 addpath(genpath('utils'))
-windowSeconds=15; 
-windowStep=1; 
 saveBaseDir = 'SavedAnalysisFigures'; 
 statsDirName = 'Statistics' ;
 lambda = 0.0125 ;
 %initiate full table so the indexes will stay the same
 statisticsAPMed = statisticsClass(max(IDrange), 5,statsDirName); % after median, without corr to GT
-statisticsPMed = statisticsClass(max(IDrange), 5,statsDirName); % after median and corr to GT
-statisticsAPKal = statisticsClass(max(IDrange), 5,statsDirName); % after Kalman, without corr to GT
-statisticsPKal = statisticsClass(max(IDrange), 5,statsDirName); % after Kalman and corr to GT
 
 if b_CLEAR_OLD && exist(saveBaseDir,'dir')
     rmdir(saveBaseDir,'s');
@@ -69,17 +62,19 @@ if(~exist("lpf_3"))
     [hpf_005,lpf_05]=LPF_05(resampleFS); %RR filter
 end
 % create a matrix for all of our data, divided by ID and scenario
-dataFull=cell(length(IDrange), numel(scenarios) ); %a cell for each struct
+dataFull=cell(length(IDrange), numel(scenarios)); %a cell for each struct
 
 for indx = 1:length(IDrange)
     numericID = IDrange(indx);
+    b_s2p = (numericID > 40); 
+
     ID = sprintf('GDN%04d', numericID); % e.g., GDN0041
     path_id = fullfile(path, ID);       % e.g., project_data/GDN0041
     
     fprintf('----------- Loading %s ------------\n', ID);
     
     % Check if this subject requires S2P parsing
-    b_s2p = (numericID >= 41); 
+   
 
     for sz = 1:length(scenarios)
         scenario = scenarios{sz};
@@ -91,22 +86,13 @@ for indx = 1:length(IDrange)
             %% --- NEW S2P LOGIC (INSTANCE METHOD) ---
             s2pFileName = fullfile(path_id, sprintf('GD%04d_%s.s2p', numericID, scenario));
             matFileName = fullfile(path_id, sprintf('GDN%04d_3_%s.mat', numericID, scenario));
-            
-            % 1. Instantiate the patient object first with dummy values 
-            % (0 satisfies the {mustBeColumn} argument restrictions)
-            dataFull{indx,sz} = radarClass(ID, scenario, 100, 0, 0, 0, 0);
+            mVideoPPG = VideoReader(fullfile(path_id, sprintf('GDN%04d_3_%s.mp4', numericID, scenario)));
+                     
             
             % 2. Parse the S2P data directly into the patient object's properties
             if exist(s2pFileName, 'file') && ~exist(matFileName, 'file')
-                dataFull{indx,sz}.convertS2PtoMAT(s2pFileName, matFileName);
-            elseif exist(matFileName, 'file')
-                % If previously converted, load the MAT file and manually assign to properties
-                load(matFileName);
-                dataFull{indx,sz}.radar_i = radar_i;
-                dataFull{indx,sz}.radar_q = radar_q;
-                dataFull{indx,sz}.fs_radar = fs_radar;
-                dataFull{indx,sz}.signal_gt = signal_gt;
-                dataFull{indx,sz}.resp_gt = resp_gt;
+                %dataFull{indx,sz}.convertS2PtoMAT(s2pFileName, matFileName);
+                convertS2PtoMAT(s2pFileName, matFileName);
             else
                 warning('S2P file %s not found. Skipping.', s2pFileName);
                 continue;
@@ -128,19 +114,21 @@ for indx = 1:length(IDrange)
             
             [radar_i_compensated,radar_q_compensated,phase_compensated,radar_dist] = elreko(radar_i,radar_q,measurement_info{1},0);
             [radar_respiration, radar_pulse, radar_heartsound, tfm_respiration] = getVitalSigns(radar_dist, fs_radar, tfm_z0, fs_z0);
-          
-            if ECG_CHANNEL(numericID) == 1
-                tfm_ecg = fillmissing(tfm_ecg1,'constant',0); 
+            if(b_s2p)
+                tfm_ecg = mVideoPPG;
             else
-                tfm_ecg = fillmissing(tfm_ecg2,'constant',0); 
+                if ECG_CHANNEL(numericID) == 1
+                    tfm_ecg = fillmissing(tfm_ecg1,'constant',0); 
+                else
+                    tfm_ecg = fillmissing(tfm_ecg2,'constant',0); 
+                end
+                tfm_ecg = filtButter(tfm_ecg,fs_ecg,4,[1 20],'bandpass');
             end
-            tfm_ecg = filtButter(tfm_ecg,fs_ecg,4,[1 20],'bandpass');
-            
             % Initialize object
             if (numericID==10 && scenario=="TiltDown")
                 dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg(2000:end),radar_dist(2000:end),0,tfm_respiration);
             else
-                dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration);
+                dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration,b_s2p);
             end
             dataFull{indx,sz}.radar_i = radar_i;
             dataFull{indx,sz}.radar_q = radar_q;

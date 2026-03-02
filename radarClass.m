@@ -270,6 +270,7 @@ function DS = DownSampleRadar(obj,fs)
             firH=HPF;
             end
             % Apply the filters to the decimated radar signal
+            
             obj.RrSignal = filtfilt(firL, obj.radar_decimated);
             obj.RrSignal = filtfilt(firH, obj.RrSignal);
         end
@@ -317,10 +318,10 @@ function DS = DownSampleRadar(obj,fs)
             obj.HrSignal = xNorm;
         end
 
-        function FindPeaks(obj)
+        function FindPeaks(obj) %TODO: move all commented code to if and else 
             thresholdHr= mean(abs((obj.HrSignal)))*0.25;
-            %thresholdRr= mean(abs((obj.RrSignal)))*0.05;
-          %  thresholdGt = mean(abs((obj.signal_gt)))*0.25;
+            thresholdRr= mean(abs((obj.RrSignal)))*0.05;
+            thresholdGt = mean(abs((obj.signal_gt)))*0.25;
            [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakProminence",...
         thresholdHr,'MinPeakDistance',0.33*obj.fs_new);
            % [~,obj.RrPeaks, ~,~] = findpeaks(obj.RrSignal, "MinPeakHeight",...
