@@ -92,8 +92,10 @@ for indx = 1:length(IDrange)
 
             mVideoPPG = VideoReader(vidFileName);
             tfm_ecg =   mVideoPPG;
-            fs_radar =  load(matFileName,'fs_radar');
-            fs_radar = fs_radar.fs_radar;
+            radar =  load(matFileName);
+            radar_i =  radar.radar_i;
+            radar_q =   radar.radar_q;
+            fs_radar = radar.fs_radar;
 
             dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_i,radar_q,0,b_lab);
             dataFull{indx,sz}.calculateRadarDistFromIQ();
