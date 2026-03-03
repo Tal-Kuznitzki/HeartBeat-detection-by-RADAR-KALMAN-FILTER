@@ -245,7 +245,7 @@ function DS = DownSampleRadar(obj,fs)
             obj.HrSignal = filtfilt(firL, obj.HrSignal);
             %for ppg, moving median of 3 sec to smooth:
             if(obj.b_ppg) 
-                obj.signal_gt =obj.signal_gt-medfilt1(obj.signal_gt,floor(obj.fs_gt*5));%-mean(obj.signal_gt);
+                obj.signal_gt =obj.signal_gt-medfilt1(obj.signal_gt,floor(obj.fs_gt*5));%-mean(obj.signal_gt);       
             end
         end
 
@@ -322,7 +322,7 @@ function DS = DownSampleRadar(obj,fs)
 
         function FindPeaks(obj) %TODO: move all commented code to if and else 
             thresholdHr= mean(abs((obj.HrSignal)))*0.25;
-            thresholdRr= mean(abs((obj.RespSignal)))*0.05;
+            thresholdRr= mean(abs((obj.RespSignal)))*0.15;
            [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakProminence",...
         thresholdHr,'MinPeakDistance',0.33*obj.fs_new);
            % [~,obj.RrPeaks, ~,~] = findpeaks(obj.RrSignal, "MinPeakHeight",...
@@ -747,7 +747,7 @@ end
 obj.HrEstAfterKalman = bestXhat;
 bestQ= vQ(bestQ)
 bestR = vR(bestR)
-
+b_drawGrid=0;
 if b_drawGrid == 1
     [Qm, Rm] = meshgrid(vQ, vR);
     figure;
@@ -1707,8 +1707,7 @@ end
          h = gobjects(0); % Initialize graphics array
 
          % --- FIGURE 1: Peaks Comparison on HrSignal & ECG ---
-         h(end+1) = figure('Name', 'Peaks_Comparison', 'Color', 'w');
-         
+    h(end+1) = figure('Name', sprintf('Peaks_Comparison_%s_%s', obj.ID, obj.sceneario), 'Color', 'w','WindowStyle', 'docked');
          ax_link = [];
 
          % Subplot 1
@@ -1732,7 +1731,7 @@ end
          % Subplot 2
          ax_link(2) = subplot(2,1,2);
          hold on;
-         title('%s Signal: GT Peaks vs Correlated Radar Peaks',string(obj.ref));
+         title(sprintf('%s Signal: GT Peaks vs Correlated Radar Peaks',string(obj.ref) ) );
          plot(obj.vTimeOriginal, obj.signal_gt, 'k', 'DisplayName', 'Ground Truth Signal');
          
          if ~isempty(obj.gtPeaks)
@@ -1742,11 +1741,10 @@ end
          ylabel('Amplitude'); % ADDED
          xlabel('Time (s)');  % ADDED
          legend('show', 'Location', 'best'); grid on; hold off;
-         linkaxes(ax_link, 'x');
+         linkaxes(ax_link, 'xy');
 
          % --- FIGURE 2: Heart Rate Comparisons ---
-         h(end+1) = figure('Name', 'Heart_Rate_Comparison', 'Color', 'w');
-         
+         h(end+1) = figure('Name', sprintf('Heart_Rate_Comparison_%s_%s', obj.ID, obj.sceneario), 'Color', 'w','WindowStyle', 'docked');
          ax_hr = [];
 
          % Subplot 1

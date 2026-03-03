@@ -29,8 +29,8 @@ b_plot_ALL = false;
 
 IDrange = [41,42,43,44] ; %11:12;  
 
-scenarios= {"Resting"}; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
-
+scenarios = ["Resting","Apnea","TiltUp"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+%
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 resampleFS=100; 
@@ -123,8 +123,7 @@ for indx = 1:length(IDrange)
                  end
                 % Init obj
                 dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration,b_lab);
-         end
-    end
+        end
         %% 5. frequency domain processing
         tic
         dataFull{indx,sz}.DownSampleRadar(resampleFS)
@@ -234,7 +233,7 @@ for indx = 1:length(IDrange)
        %      mMseGrid(q*4-1, p*4-1,indx) = rmse(kalman(1:maxlen),gt(1:maxlen));
        % 
        %   end
-       % end
+     end
 end
    
 % %% CAF on different values
