@@ -160,7 +160,6 @@ for indx = 1:length(IDrange)
             dataFull{indx,sz}.kalmanSmoothRadarDist();
             if ~b_lab 
                 dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
-%                dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
             end
            
     
@@ -192,8 +191,9 @@ for indx = 1:length(IDrange)
         q_auto
         r_auto
         
-        dataFull{indx,sz}.kalmanFilterBeats(q_auto,r_auto) 
-        dataFull{indx,sz}.KalmanFilterHrGrid(1); %1 to draw CAF NEW
+        dataFull{indx,sz}.kalmanFilterBeats_n(q_auto,r_auto) 
+        dataFull{indx,sz}.KalmanFilterHrGrid(0); %1 to draw CAF NEW
+        
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
         % generates HrPeaksAfterKalman and HrEstAfterKalman
 

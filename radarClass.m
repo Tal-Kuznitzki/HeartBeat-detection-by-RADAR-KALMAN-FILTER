@@ -113,6 +113,12 @@ classdef radarClass < handle
                 mVid = read(gtSignal);
                 mRed = squeeze(mVid(:,:,1,:));
                 vRed = double(squeeze(mean(mean(mRed,1),2)));
+                
+                % % Trimming the first 0.1 seconds
+                % % trim_sec = 0.2;
+                % % trim_samples_gt = round(trim_sec * obj.fs_gt);
+                % % vRed = vRed(trim_samples_gt + 1 : end);
+
                 obj.signal_gt = vRed;
                 obj.ref = "PPG" ; 
                 gtSignal=vRed;
@@ -245,7 +251,9 @@ function DS = DownSampleRadar(obj,fs)
             obj.HrSignal = filtfilt(firL, obj.HrSignal);
             %for ppg, moving median of 3 sec to smooth:
             if(obj.b_ppg) 
-                obj.signal_gt =obj.signal_gt-medfilt1(obj.signal_gt,floor(obj.fs_gt*5));%-mean(obj.signal_gt);       
+                baseline = movmedian(obj.signal_gt, floor(obj.fs_gt*5), 'Endpoints', 'shrink');
+                obj.signal_gt = obj.signal_gt - baseline;
+                %obj.signal_gt =obj.signal_gt-medfilt1(obj.signal_gt,floor(obj.fs_gt*5));%-mean(obj.signal_gt);       
             end
         end
 
@@ -322,14 +330,14 @@ function DS = DownSampleRadar(obj,fs)
 
         function FindPeaks(obj) %TODO: move all commented code to if and else 
             thresholdHr= mean(abs((obj.HrSignal)))*0.25;
-            thresholdRr= mean(abs((obj.RespSignal)))*0.15;
+            thresholdRr= mean(abs((obj.RespSignal)))*0.05;
            [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakProminence",...
         thresholdHr,'MinPeakDistance',0.33*obj.fs_new);
            % [~,obj.RrPeaks, ~,~] = findpeaks(obj.RrSignal, "MinPeakHeight",...
            %  thresholdRr,'MinPeakDistance',2*obj.fs_new);
             
             if(obj.b_ppg)
-               thresholdGt = mean(abs((obj.signal_gt)))*0.05;
+               thresholdGt = mean(abs((obj.signal_gt)))*0.15;
                [~,obj.gtPeaks, ~,~] = findpeaks(obj.signal_gt, "MinPeakProminence",...
         thresholdGt,'MinPeakDistance',0.33*obj.fs_gt);
             else
@@ -745,9 +753,8 @@ end
 
 
 obj.HrEstAfterKalman = bestXhat;
-bestQ= vQ(bestQ)
+bestQ = vQ(bestQ)
 bestR = vR(bestR)
-b_drawGrid=0;
 if b_drawGrid == 1
     [Qm, Rm] = meshgrid(vQ, vR);
     figure;
@@ -869,7 +876,109 @@ function kalmanFilterBeats(obj, Q, R)
     % G. Convert to Time
     obj.HrPeaksAfterKalman = peakIndices * dt;
 end
+function kalmanFilterBeats_n(obj, Q, R)
+    % Standard 1-State Kalman Filter (Tracking HR Position)
+    
+    if isempty(obj.HrEstAfterMedian) || length(obj.HrEstAfterMedian) < 2
+        obj.HrEstAfterKalman = obj.HrEstAfterMedian;
+        obj.HrPeaksAfterKalman = obj.HrPeaks;
+        return;
+    end
 
+    % --- 1. Define Time Axis for Beats ---
+    fs = obj.fs_new;
+    if isempty(fs) || isnan(fs), fs = 100; end
+    dt_sample = 1 / fs;
+    
+    % The HR estimates represent the intervals between peaks.
+    % We assign the "time" of each measurement to the midpoint of the beat.
+    peaks = obj.HrPeaks(:);
+    if length(peaks) < 2
+        return;
+    end
+    t_beats = (peaks(1:end-1) + peaks(2:end)) / 2; 
+    
+    % --- 2. Initialize State ---
+    meas = obj.HrEstAfterMedian(:); 
+    N = length(meas);
+    xh = nan(N, 1); 
+    
+    % Find first valid measurement
+    firstIdx = find(~isnan(meas), 1);
+    if isempty(firstIdx)
+        x = 60; 
+    else
+        x = meas(firstIdx);
+    end
+    P = 10; 
+    
+    % --- 3. Main Loop (Forward Filter over Beats) ---
+    for i = 1:N
+        % Calculate actual time elapsed since last beat for process noise scaling
+        if i == 1
+            dt_beat = 60 / x; % approximate first beat duration
+        else
+            dt_beat = t_beats(i) - t_beats(i-1);
+        end
+        
+        % Prediction
+        A = 1; 
+        H = 1;
+        Q_mat = Q * dt_beat; % Process noise scales with time between beats
+        
+        x = A * x;
+        P = A * P * A' + Q_mat;
+        
+        % Update
+        z = meas(i);
+        if ~isnan(z)
+            K = P * H' / (H * P * H' + R);
+            x = x + K * (z - H * x);
+            P = (1 - K * H) * P;
+        end
+        xh(i) = x;
+    end
+    
+    obj.HrEstAfterKalman = xh;
+
+    % --- 4. PEAK RECONSTRUCTION (Continuous Phase Integration) ---
+    
+    % A. Interpolate the beat-by-beat HR to a continuous time grid
+    t_grid = obj.vTimeNew(:);
+    
+    % Use pchip to smoothly interpolate the discrete beats across the whole time vector
+    hr_continuous = interp1(t_beats, xh, t_grid, 'pchip', 'extrap');
+    
+    % Clamp to physiological bounds to prevent wild integration at extrapolated edges
+    hr_continuous = max(hr_continuous, 30);
+    hr_continuous = min(hr_continuous, 220);
+    
+    % B. Convert BPM -> Hz
+    freq_hz = hr_continuous / 60;
+    
+    % C. Integrate to get Phase
+    raw_phase = cumsum(freq_hz * dt_sample);
+    
+    % D. PHASE ALIGNMENT
+    % Sync the synthetic phase with reality using the FIRST original peak as an anchor
+    phase_offset = 0;
+    [~, anchor_idx] = min(abs(t_grid - peaks(1))); % Safely find index of first peak
+    
+    if anchor_idx > 0 && anchor_idx <= length(raw_phase)
+        phase_at_anchor = raw_phase(anchor_idx);
+        % We want the phase at the anchor to be exactly 1.0
+        phase_offset = 1.0 - phase_at_anchor;
+    end
+    
+    adjusted_phase = raw_phase + phase_offset;
+    
+    % E. Find Peaks (Integer Crossings)
+    phase_floor = floor(adjusted_phase);
+    peak_mask = [0; diff(phase_floor)] >= 1; 
+    
+    % F. Store New Peaks
+    obj.HrPeaksAfterKalman = t_grid(peak_mask);
+end
 function out = kalmanSmoothRadarDist(obj, config)
 % kalmanSmoothRadarDist
 % Kalman smoothing for raw radar_dist at high fs (e.g. 2000 Hz).
