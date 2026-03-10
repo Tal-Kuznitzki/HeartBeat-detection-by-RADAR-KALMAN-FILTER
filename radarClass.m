@@ -337,7 +337,7 @@ function DS = DownSampleRadar(obj,fs)
            %  thresholdRr,'MinPeakDistance',2*obj.fs_new);
             
             if(obj.b_ppg)
-               thresholdGt = mean(abs((obj.signal_gt)))*0.15;
+               thresholdGt = mean(abs((obj.signal_gt)))*0.2;
                [~,obj.gtPeaks, ~,~] = findpeaks(obj.signal_gt, "MinPeakProminence",...
         thresholdGt,'MinPeakDistance',0.33*obj.fs_gt);
             else
@@ -1882,7 +1882,7 @@ end
          if ~isempty(obj.CorrMedianHr_on_gt_time)
              plot(obj.CorrMedianHr_on_gt_time, 'b','DisplayName', 'Radar Est After Median');
          end
-         plot(obj.CorrGt, 'r--','DisplayName', 'GT');
+         plot(obj.CorrGt, 'r--','DisplayName', 'GT(Median&fit)');
          ylabel('Heart Rate (BPM)'); % ADDED
          xlabel('Time (s) [GT Grid]'); % ADDED
          legend('show', 'Location', 'best');
