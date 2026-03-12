@@ -27,9 +27,9 @@ end
 b_CLEAR_OLD = false;
 b_plot_ALL = false;
 
-IDrange = [41,42,43,44] ; %11:12;  
+IDrange = [41] ; %11:12;  
 
-scenarios = ["Resting","Apnea","TiltUp"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios = ["Resting"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 %
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
@@ -128,9 +128,11 @@ for indx = 1:length(IDrange)
         tic
         dataFull{indx,sz}.DownSampleRadar(resampleFS)
         dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
+        dataFull{indx,sz}.RespFilter(lpf_05,hpf_005);
+
         dataFull{indx,sz}.NormalizeHrSignal(1.0); 
         if ~b_lab
-        dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
+        dataFull{indx,sz}.RespFilter(lpf_05,hpf_005);
  %      dataFull{indx,sz}.HrSignal = dataFull{indx,sz}.KF_HrSignal;
         end
       filtering_time=toc;
@@ -191,7 +193,7 @@ for indx = 1:length(IDrange)
         q_auto
         r_auto
         
-        dataFull{indx,sz}.kalmanFilterBeats_n(q_auto,r_auto) 
+        %dataFull{indx,sz}.kalmanFilterBeats_nH(q_auto,r_auto) 
         dataFull{indx,sz}.KalmanFilterHrGrid(0); %1 to draw CAF NEW
         
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
@@ -207,6 +209,8 @@ for indx = 1:length(IDrange)
         dataFull{indx,sz}.timeFitting(); %generates CORRELATED HR
       
          dataFull{indx,sz}.plot_examples();
+         dataFull{indx,sz}.plotRespRates();
+         dataFull{indx,sz}.plotRespSignals();
         %%
         % show all results with CorrGt and CorrKalmanHr
         dataFull{indx,sz}.CalcError(dataFull{indx,sz}.CorrKalmanHr_on_gt_time);

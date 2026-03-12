@@ -258,7 +258,7 @@ function DS = DownSampleRadar(obj,fs)
         end
 
         %
-        function RrFilter(obj, LPF, HPF) %currently without highpass. maybe pass through median filter. %TODO use outside filter so we wont
+        function RespFilter(obj, LPF, HPF) %currently without highpass. maybe pass through median filter. %TODO use outside filter so we wont
         % designfilt each iteration
           if nargin < 2
                 LPF = [];
@@ -283,6 +283,7 @@ function DS = DownSampleRadar(obj,fs)
             
             obj.RespSignal = filtfilt(firL, obj.radar_decimated);
             obj.RespSignal = filtfilt(firH, obj.RespSignal);
+            obj.RespSignal = obj.RespSignal-mean(obj.RespSignal);
         end
         %finding the peaks and normalize to seconds
         function NormalizeHrSignal(obj, winSec)
@@ -330,11 +331,11 @@ function DS = DownSampleRadar(obj,fs)
 
         function FindPeaks(obj) %TODO: move all commented code to if and else 
             thresholdHr= mean(abs((obj.HrSignal)))*0.25;
-            thresholdRr= mean(abs((obj.RespSignal)))*0.05;
+            thresholdResp= mean(abs((obj.RespSignal)))*0.05;
            [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakProminence",...
         thresholdHr,'MinPeakDistance',0.33*obj.fs_new);
-           % [~,obj.RrPeaks, ~,~] = findpeaks(obj.RrSignal, "MinPeakHeight",...
-           %  thresholdRr,'MinPeakDistance',2*obj.fs_new);
+            [~,obj.RespPeaks, ~,~] = findpeaks(obj.RespSignal, "MinPeakHeight",...
+             thresholdResp,'MinPeakDistance',2*obj.fs_new);
             
             if(obj.b_ppg)
                thresholdGt = mean(abs((obj.signal_gt)))*0.2;
@@ -343,7 +344,7 @@ function DS = DownSampleRadar(obj,fs)
             else
                 [~,obj.gtPeaks,~] = pan_tompkin(obj.signal_gt,obj.fs_gt,0);
                 [~,obj.RespPeaks_gt, ~,~] = findpeaks(obj.resp_gt, "MinPeakHeight",...
-                thresholdRr,'MinPeakDistance',2*(obj.fs_new/2.5));
+                thresholdResp,'MinPeakDistance',2*(obj.fs_new/2.5));
                 obj.RespPeaks_gt = obj.RespPeaks_gt /(100);
             end
 
@@ -358,8 +359,8 @@ function DS = DownSampleRadar(obj,fs)
         function FindRates(obj)
             obj.HrEst = 60 ./  diff(obj.HrPeaks);
             obj.HrGtEst = 60 ./  diff(obj.gtPeaks); 
-   %         obj.RrEst = 60 ./  diff(obj.RrPeaks);
-   %         obj.RrGtEst = 60 ./ diff(obj.Rrpeaks_gt);            
+            obj.RespEst = 60 ./  diff(obj.RespPeaks);
+            obj.RespGtEst = 60 ./ diff(obj.RespPeaks_gt);            
         end
         function ComputePreFilterStats(obj)
             % ComputePreFilterStats
@@ -1693,7 +1694,7 @@ end
         end
        
        %% Plot 4: Respiration Rates (Trends)
-       function h = plotRrRates(obj)
+       function h = plotRespRates(obj)
             h = figure('Name', 'Respiration_Rates', 'Color', 'w');
             hold on;
             title(sprintf('Respiration Rate Comparison - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
@@ -1712,7 +1713,7 @@ end
         end
 
         %% Plot 5: Respiration Signals (Time Domain)
-       function h = plotRrSignals(obj)
+       function h = plotRespSignals(obj)
             h = figure('Name', 'Respiration_Signals_Comparison', 'Color', 'w');
             
             ax = [];
@@ -2150,8 +2151,8 @@ end
                 peaksToCompare = obj.HrPeaks ;
                 timeToCompare = obj.vTimeNew ;
                 options.plot_HrPeaks (1,1) logical = true
-                options.plot_RrRates (1,1) logical = true
-                options.plot_RrSignals (1,1) logical = true
+                options.plot_RespRates (1,1) logical = true
+                options.plot_RespSignals (1,1) logical = true
                 options.plot_BA (1,1) logical = true
                 options.plot_DashBoard (1,1) logical = true
                 options.plot_Errors (1,1) logical = true
@@ -2167,14 +2168,14 @@ end
             end
             
             % 2. Respiration Rates
-            if options.plot_RrRates
-                h2 = obj.plotRrRates();
+            if options.plot_RespRates
+                h2 = obj.plotRespRates();
                 if isgraphics(h2), figHandles(end+1) = h2; end
             end
 
             % 3. Respiration Signals
-            if options.plot_RrSignals
-                h3 = obj.plotRrSignals();
+            if options.plot_RespSignals
+                h3 = obj.plotRespSignals();
                 if isgraphics(h3), figHandles(end+1) = h3; end
             end
 
