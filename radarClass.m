@@ -199,8 +199,11 @@ classdef radarClass < handle
     D = coeffs(4);
     
     % Step 3: Calculate amplitude and phase imbalance
-    Ae = sqrt(1 / A);
+    Ae = sqrt(1 / abs(A));
     phi_e = asin(B / (2 * sqrt(A))); 
+    % if(imag(phi_e)>0 || imag(phi_e)<0)
+    %     phi_e = asin(B / (2 * sqrt(A))-1); 
+    % end
     
     % Step 4: Calculate the Ellipse Center (DC Offsets)
     denom = 4 * A - B^2;
@@ -264,7 +267,7 @@ classdef radarClass < handle
     
 if (b_result_pick==1)
     obj.radar_i = radar_i_fitted_simple;
-    obj.radar_i = radar_q_fitted_simple;
+    obj.radar_q = radar_q_fitted_simple;
 elseif (b_result_pick==2) 
     obj.radar_i = radar_i_fitted_gs;
     obj.radar_q = radar_q_fitted_gs;
@@ -305,7 +308,55 @@ function DS = DownSampleRadar(obj,fs)
             end
             obj.fs_new = fs;
             obj.vTimeNew = 1/fs:1/fs:length(obj.radar_decimated)/fs; %len-1?
+            end
+function SmoothSpikesHr(obj, thresh)
+    if nargin < 2 || isempty(thresh)
+        thresh = 1.4;
+    end
+
+    if isempty(obj.HrEst)
+        return;
+    end
+
+    vHr = obj.HrEst(:);
+    n = numel(vHr);
+
+    if n == 0
+        return;
+    end
+
+    winHalf = 10;   % 10 before and 10 after
+
+    for i = 1:n
+        iStart = max(1, i - winHalf);
+        iEnd   = min(n, i + winHalf);
+
+        % local window without current sample
+        vLocal = vHr(iStart:iEnd);
+        idxLocal = (iStart:iEnd).';
+        vLocal(idxLocal == i) = [];
+
+        % keep only finite positive values
+        vLocal = vLocal(isfinite(vLocal) & vLocal > 0);
+
+        if isempty(vLocal) || ~isfinite(vHr(i)) || vHr(i) <= 0
+            continue;
         end
+
+        localMean = median(vLocal);
+
+        % spike check:
+        % Hr(i)/thresh > localMean   <=> Hr(i) > thresh*localMean
+        % Hr(i)*thresh < localMean   <=> Hr(i) < localMean/thresh
+        if( ((vHr(i) > thresh * localMean) && vHr(i)>80) ...
+                ||...
+           (vHr(i) < localMean / thresh)&& vHr(i)<60)
+            vHr(i) = 1.1 * localMean;
+        end
+    end
+
+    obj.HrEst = vHr;
+end
     %end 
     %methods(Static)
         % apply HR filters and make %TODO use outside filter so we wont

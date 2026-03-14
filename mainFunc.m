@@ -34,9 +34,9 @@ end
 b_CLEAR_OLD = false;
 b_plot_ALL = false;
 
-IDrange = [41,42,43,44] ; %11:12;  
+IDrange = [41,42] ; %11:12;  
 
-scenarios = ["Resting","Apnea","TiltUp"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios = ["Apnea","TiltUp"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
@@ -213,6 +213,7 @@ for indx = 1:length(IDrange)
         dataFull{indx,sz}.FindRates(); 
         % based on peaks: Hr, Rr , ecg(gt) ,Rr_gt and peaksFinal ,
         % generates rates: HrEst, HrGtEst, RrEst, RrGtEst 
+        dataFull{indx,sz}.SmoothSpikesHr(1.4);
         dataFull{indx,sz}.ComputePreFilterStats();
 
 
