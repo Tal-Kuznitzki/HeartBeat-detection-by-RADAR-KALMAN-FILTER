@@ -11,8 +11,15 @@
 % 9. Clean up (close figures)
 
 % --- STEP 1: Global Initialization (Run only once) ---
+
+folders = ["Functions\","original_code\","plots\","project_data\","SavedAnalysisFigures\","Statistics\","utils"];
+for folderName = folders
+    addpath(genpath(folderName));
+end
+
 b_CLEAN_START = false;
 b_reset_filter = false;
+b_CLEAR_OLD_mat=true;
 
 if b_CLEAN_START
     clc; 
@@ -27,10 +34,10 @@ end
 b_CLEAR_OLD = false;
 b_plot_ALL = false;
 
-IDrange = [41] ; %11:12;  
+IDrange = [41,42,43,44] ; %11:12;  
 
-scenarios = ["Resting"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
-%
+scenarios = ["Resting","Apnea","TiltUp"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
 resampleFS=100; 
@@ -82,12 +89,32 @@ for indx = 1:length(IDrange)
             s2pFileName = fullfile(path_id, sprintf('GD%04d_%s.s2p', numericID, scenario));
             matFileName = fullfile(path_id, sprintf('GDN%04d_%s.mat', numericID, scenario));
             vidFileName = (fullfile(path_id, sprintf('GD%04d_%s.mp4', numericID, scenario)));
+            
+            %cleanup for old .mat files:
+
+            numericID = IDrange(indx);
+            if  (numericID > 40 ) &&  (b_CLEAR_OLD_mat) 
+                ID = sprintf('GDN%04d', numericID); 
+                path_id = fullfile(path, ID);       
+                if exist(path_id, 'dir')
+                    target_files = fullfile(path_id, '*.mat');
+                    delete(target_files);
+                    fprintf('Cleared old .mat files from: %s\n', path_id);
+                else
+                    fprintf('Folder not found, skipping: %s\n', path_id);
+                end
+            end
+
 
            
             if exist(s2pFileName, 'file') && ~exist(matFileName, 'file')
+                fprintf('Found s2pFile %s, converting to matFile %s \n', s2pFileName, matFileName);
                 [~,radar_i,radar_q] = convertS2PtoMAT(s2pFileName, matFileName);
-            else
-                warning('S2P file %s not found. Skipping.', s2pFileName);
+            elseif exist(matFileName, 'file') 
+                warning('old matFile %s  found.', matFileName);
+            elseif ~exist(s2pFileName, 'file') 
+                warning('s2pFileName file %s not found. Skipping.', s2pFileName);
+                continue;
             end
 
             mVideoPPG = VideoReader(vidFileName);
@@ -98,6 +125,13 @@ for indx = 1:length(IDrange)
             fs_radar = radar.fs_radar;
 
             dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_i,radar_q,0,b_lab);
+            
+            b_comp = 1;
+            b_mode = 1;
+            if b_comp 
+            dataFull{indx,sz}.IQcompensation(1,b_mode);
+            %(b_plot, b_result_pick) b_result_pick = 0 for no change, 1 for simple, 2 for GS as Singeh et al paper.
+            end      
             dataFull{indx,sz}.calculateRadarDistFromIQ();
             
         else
@@ -122,7 +156,12 @@ for indx = 1:length(IDrange)
                     radar_dist=radar_dist(2000:end);
                  end
                 % Init obj
-                dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration,b_lab);
+                %%%OLD RETURN TO THIS!!!
+                %%dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration,b_lab);
+                warning("@TESTING: Using IQ compensation instead of RADAR_DIST data for testing @");
+                dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_i,radar_q,tfm_respiration,b_lab);
+                dataFull{indx,sz}.IQcompensation(1,0);
+                %(b_plot, b_result_pick) = b_result_pick - 0 for no change, 1 for simple, 2 for GS as Singeh et al.
         end
         %% 5. frequency domain processing
         tic

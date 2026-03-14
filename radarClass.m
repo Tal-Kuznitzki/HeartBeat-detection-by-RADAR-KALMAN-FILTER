@@ -179,24 +179,114 @@ classdef radarClass < handle
             save(matFileName, 'radar_i', 'radar_q', 'signal_gt', 'resp_gt', 'fs_radar');
             fprintf('Successfully converted %s to %s\n', s2pFilePath, matFileName);
         end
-       function calculateRadarDistFromIQ(obj) %%REWORK
+        function [] = IQcompensation(obj, b_plot,b_result_pick) %b_result_pick - 1 for simple . 0 for GS as Singeh et al.
+    % Ensure inputs are column vectors
+    I = real(obj.radar_i(:)); 
+    Q = real(obj.radar_q(:));
+    
+    % =========================================================
+    % METHOD 1: Gram-Schmidt / Ellipse Fit (Singh et al.)
+    % =========================================================
+    % Step 1: Set up the linear system
+    M = [Q.^2, I.*Q, I, Q, ones(size(I))];
+    b = -I.^2;
+    
+    % Step 2: Solve for coefficients A, B, C, D using Least Squares
+    coeffs = (M.' * M) \ (M.' * b);
+    A = coeffs(1);
+    B = coeffs(2);
+    C = coeffs(3);
+    D = coeffs(4);
+    
+    % Step 3: Calculate amplitude and phase imbalance
+    Ae = sqrt(1 / A);
+    phi_e = asin(B / (2 * sqrt(A))); 
+    
+    % Step 4: Calculate the Ellipse Center (DC Offsets)
+    denom = 4 * A - B^2;
+    I_c = (B * D - 2 * A * C) / denom;
+    Q_c = (B * C - 2 * D) / denom;
+    
+    % Step 5: Apply Gram-Schmidt Compensation
+    I_centered_gs = I - I_c;
+    Q_centered_gs = Q - Q_c;
+    
+    I_comp_gs = I_centered_gs;
+    Q_comp_gs = (Q_centered_gs / Ae - I_centered_gs * sin(phi_e)) / cos(phi_e);
+    
+    % Store Method 1 results as local arrays of complex doubles 
+    % (Forcing real() to strip any imaginary artifacts before casting)
+    radar_i_fitted_gs = complex(real(I_comp_gs), 0);
+    radar_q_fitted_gs = complex(real(Q_comp_gs), 0);
+
+    % =========================================================
+    % METHOD 2: Simple Shift and Scale
+    % =========================================================
+    % Step 1: Shift to zero mean
+    I_simple_centered = I - mean(I);
+    Q_simple_centered = Q - mean(Q);
+    
+    % Step 2: Scale to a [-1, 1] range based on max amplitude
+    I_comp_simple = I_simple_centered / max(abs(I_simple_centered));
+    Q_comp_simple = Q_simple_centered / max(abs(Q_simple_centered));
+    
+    % Store Method 2 results as local arrays of complex doubles
+    radar_i_fitted_simple = complex(I_comp_simple, 0);
+    radar_q_fitted_simple = complex(Q_comp_simple, 0);
+    
+    % =========================================================
+    % Plotting
+    % =========================================================
+    if b_plot
+        figure('Name', sprintf('Quadrature Imbalance Compensation - ID: %s', string(obj.ID)), 'Color', 'w');
+        
+        % Original Data
+        subplot(1, 3, 1);
+        plot(I, Q, '.k', 'MarkerSize', 2);
+        grid on; axis equal;
+        title(sprintf('Before Comp - ID: %s, Scen: %s', string(obj.ID), obj.sceneario));
+        xlabel('I (V)'); ylabel('Q (V)');
+        
+        % Method 1 Plot (Singh et al.)
+        subplot(1, 3, 2);
+        plot(real(radar_i_fitted_gs), real(radar_q_fitted_gs), '.b', 'MarkerSize', 2);
+        grid on; axis equal;
+        title(sprintf('Method 1 (GS) - ID: %s, Scen: %s', string(obj.ID), obj.sceneario));
+        xlabel('I_{comp} (V)'); ylabel('Q_{comp} (V)');
+        
+        % Method 2 Plot (Simple)
+        subplot(1, 3, 3);
+        plot(real(radar_i_fitted_simple), real(radar_q_fitted_simple), '.r', 'MarkerSize', 2);
+        grid on; axis equal;
+        title(sprintf('Method 2 (Shift) - ID: %s, Scen: %s', string(obj.ID), obj.sceneario));
+        xlabel('I_{comp}'); ylabel('Q_{comp}');
+    end
+    
+if (b_result_pick==1)
+    obj.radar_i = radar_i_fitted_simple;
+    obj.radar_i = radar_q_fitted_simple;
+elseif (b_result_pick==2) 
+    obj.radar_i = radar_i_fitted_gs;
+    obj.radar_q = radar_q_fitted_gs;
+   
+end
+
+end
+
+        function calculateRadarDistFromIQ(obj)
+
             % Calculates the relative distance using arctangent demodulation
-            
-            % 1. Complex representation (Eq. 3 & Eq. 4)
             Z = obj.radar_i(:) + 1i * obj.radar_q(:);
-            
-            % 2. Arctangent demodulation to extract phase
             phase_rad = angle(Z);
             
-            % 3. Unwrap phase to handle boundary jumps
+            %Unwrap phase to handle boundary jumps
             unwrapped_phase = unwrap(phase_rad);
             
-            % 4. Convert phase to distance (Eq. 5)
-            c = 3e8; % Speed of light in m/s
-            f = 24.17e9; % Operating frequency of 24.17 GHz
+
+            c = 3e8; 
+            f = 10e9; % Operating frequency of 10 GHz
             lambda = c / f;
             
-            % Calculate relative distance
             obj.radar_dist = (unwrapped_phase / (2*pi)) * (lambda / 2);
         end
 function DS = DownSampleRadar(obj,fs)
@@ -332,15 +422,25 @@ function DS = DownSampleRadar(obj,fs)
         function FindPeaks(obj) %TODO: move all commented code to if and else 
             thresholdHr= mean(abs((obj.HrSignal)))*0.25;
             thresholdResp= mean(abs((obj.RespSignal)))*0.05;
-           [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakProminence",...
-        thresholdHr,'MinPeakDistance',0.33*obj.fs_new);
+
+            med_height = median(abs(obj.HrSignal));
+            min_h = med_height * 0.25;
+
+           [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakProminence",thresholdHr,...
+            'MinPeakDistance',0.33*obj.fs_new,...
+            'MinPeakHeight', min_h);
             [~,obj.RespPeaks, ~,~] = findpeaks(obj.RespSignal, "MinPeakHeight",...
              thresholdResp,'MinPeakDistance',2*obj.fs_new);
             
             if(obj.b_ppg)
                thresholdGt = mean(abs((obj.signal_gt)))*0.2;
-               [~,obj.gtPeaks, ~,~] = findpeaks(obj.signal_gt, "MinPeakProminence",...
-        thresholdGt,'MinPeakDistance',0.33*obj.fs_gt);
+               med_height_gt = median(abs(obj.signal_gt));
+               min_h_gt = med_height_gt * 0.25;
+               
+               [~,obj.gtPeaks, ~,~] = findpeaks(obj.signal_gt, "MinPeakProminence",thresholdGt,...
+               'MinPeakDistance',0.33*obj.fs_gt,...
+               'MinPeakHeight', min_h_gt);
+               
             else
                 [~,obj.gtPeaks,~] = pan_tompkin(obj.signal_gt,obj.fs_gt,0);
                 [~,obj.RespPeaks_gt, ~,~] = findpeaks(obj.resp_gt, "MinPeakHeight",...
