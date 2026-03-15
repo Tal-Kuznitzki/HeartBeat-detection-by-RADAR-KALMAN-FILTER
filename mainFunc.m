@@ -12,7 +12,8 @@
 
 % --- STEP 1: Global Initialization (Run only once) ---
 
-folders = ["Functions\","original_code\","plots\","project_data\","SavedAnalysisFigures\","Statistics\","utils"];
+folders = ["OLD_files","Functions\","original_code\","plots\",...
+    "project_data\","SavedAnalysisFigures\","Statistics\","utils"];
 for folderName = folders
     addpath(genpath(folderName));
 end
@@ -34,9 +35,9 @@ end
 b_CLEAR_OLD = false;
 b_plot_ALL = false;
 
-IDrange = [41,42] ; %11:12;  
+IDrange = [41,42,43,44] ; %11:12;  
 
-scenarios = ["Apnea","TiltUp"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios = ["Resting","Apnea"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
@@ -60,7 +61,7 @@ end
 %% 2. initialization - Loop 
 % create filters
 if(~exist("lpf_3"))
-    [lpf_3,hpf_05]=HRfir(resampleFS); %HR filters
+    [lpf_3,hpf_05,lpf_5]=HRfir(resampleFS); %HR filters
     [hpf_005,lpf_05]=LPF_05(resampleFS); %RR filter
 end
 % create a matrix for all of our data, divided by ID and scenario
@@ -166,7 +167,7 @@ for indx = 1:length(IDrange)
         %% 5. frequency domain processing
         tic
         dataFull{indx,sz}.DownSampleRadar(resampleFS)
-        dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
+        dataFull{indx,sz}.HrFilter(lpf_3,hpf_05,lpf_5);
         dataFull{indx,sz}.RespFilter(lpf_05,hpf_005);
 
         dataFull{indx,sz}.NormalizeHrSignal(1.0); 
@@ -192,7 +193,7 @@ for indx = 1:length(IDrange)
             dataFull{indx,sz}.radar_dist = -1.* dataFull{indx,sz}.radar_dist ;
         
             dataFull{indx,sz}.DownSampleRadar(resampleFS);
-            dataFull{indx,sz}.HrFilter(lpf_3,hpf_05);
+            dataFull{indx,sz}.HrFilter(lpf_3,hpf_05,lpf_5);
             
 
             filteringTime = toc;         

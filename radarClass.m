@@ -351,7 +351,7 @@ function SmoothSpikesHr(obj, thresh)
         if( ((vHr(i) > thresh * localMean) && vHr(i)>80) ...
                 ||...
            (vHr(i) < localMean / thresh)&& vHr(i)<60)
-            vHr(i) = 1.1 * localMean;
+            vHr(i) = 1 * localMean;
         end
     end
 
@@ -361,7 +361,11 @@ end
     %methods(Static)
         % apply HR filters and make %TODO use outside filter so we wont
         % designfilt each iteration
-        function HrFilter(obj, LPF, HPF)
+        function HrFilter(obj, LPF, HPF,gtLPF)
+            if(nargin<4)
+                gtLPF=[];
+            end
+            
             if nargin < 3
                  HPF = [];
             end
@@ -392,9 +396,10 @@ end
             obj.HrSignal = filtfilt(firL, obj.HrSignal);
             %for ppg, moving median of 3 sec to smooth:
             if(obj.b_ppg) 
+                obj.signal_gt = filtfilt(gtLPF, obj.signal_gt);
                 baseline = movmedian(obj.signal_gt, floor(obj.fs_gt*5), 'Endpoints', 'shrink');
                 obj.signal_gt = obj.signal_gt - baseline;
-                %obj.signal_gt =obj.signal_gt-medfilt1(obj.signal_gt,floor(obj.fs_gt*5));%-mean(obj.signal_gt);       
+                      
             end
         end
 
@@ -471,17 +476,21 @@ end
         end
 
         function FindPeaks(obj) %TODO: move all commented code to if and else 
-            thresholdHr= mean(abs((obj.HrSignal)))*0.25;
-            thresholdResp= mean(abs((obj.RespSignal)))*0.05;
+            thresholdHr= mean(abs((obj.HrSignal)))*0.23;
+            if(obj.sceneario=="Apnea")
+                thresholdResp= mean(abs((obj.RespSignal)))*0.7;
+            else 
+                thresholdResp= mean(abs((obj.RespSignal)))*0.15;
+            end
 
             med_height = median(abs(obj.HrSignal));
             min_h = med_height * 0.25;
 
            [~,obj.HrPeaks, ~,~] = findpeaks(obj.HrSignal, "MinPeakProminence",thresholdHr,...
-            'MinPeakDistance',0.33*obj.fs_new,...
-            'MinPeakHeight', min_h);
-            [~,obj.RespPeaks, ~,~] = findpeaks(obj.RespSignal, "MinPeakHeight",...
-             thresholdResp,'MinPeakDistance',2*obj.fs_new);
+            'MinPeakDistance',obj.fs_new/2.5);%,...
+            %'MinPeakHeight', min_h);
+            [~,obj.RespPeaks, ~,~] = findpeaks(obj.RespSignal, "MinPeakProminence",...
+             thresholdResp,'MinPeakDistance',1.5*obj.fs_new);
             
             if(obj.b_ppg)
                thresholdGt = mean(abs((obj.signal_gt)))*0.2;
@@ -489,8 +498,8 @@ end
                min_h_gt = med_height_gt * 0.25;
                
                [~,obj.gtPeaks, ~,~] = findpeaks(obj.signal_gt, "MinPeakProminence",thresholdGt,...
-               'MinPeakDistance',0.33*obj.fs_gt,...
-               'MinPeakHeight', min_h_gt);
+               'MinPeakDistance',obj.fs_gt/2.5);%,...
+               %'MinPeakHeight', min_h_gt);
                
             else
                 [~,obj.gtPeaks,~] = pan_tompkin(obj.signal_gt,obj.fs_gt,0);
