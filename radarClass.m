@@ -82,7 +82,7 @@ classdef radarClass < handle
         function obj = radarClass(ID,scenario,fs_radar,gtSignal,radar_i, radar_q,gt_resp,b_ppg)
             arguments
                 ID            
-                scenario (1,1) string {mustBeMember(scenario, ["Resting","Valsalva","Apnea","TiltDown","TiltUp"])} 
+                scenario (1,1) string {mustBeMember(scenario, ["Resting","Valsalva","Apnea","TiltDown","TiltUp","Number"])} 
                 fs_radar {mustBeNonnegative}
                 gtSignal {mustBeColumn}
                 radar_i {mustBeColumn} 
@@ -108,7 +108,7 @@ classdef radarClass < handle
                 if isnumeric(gtSignal) || isvector(gtSignal)
                     % New CSV PPG case: gtSignal is already a 1D signal
                     obj.fs_gt = 500;
-                    obj.signal_gt = gtSignal(:);   % force column vector
+                    obj.signal_gt = 1e3*gtSignal(:);   % force column vector
                     obj.ref = "PPG";
                     gtSignal = obj.signal_gt;
             
