@@ -35,7 +35,7 @@ end
 b_CLEAR_OLD = false;
 b_plot_ALL = false;
 
-IDrange = [41,42,43,44] ; %11:12;  
+IDrange = [51] ; %11:12;  
 
 scenarios = ["Resting","Apnea"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
@@ -85,85 +85,150 @@ for indx = 1:length(IDrange)
         
         current_figures = gobjects(0); 
         
-        if b_lab
-            %% --- NEW S2P LOGIC (INSTANCE METHOD) ---
-            s2pFileName = fullfile(path_id, sprintf('GD%04d_%s.s2p', numericID, scenario));
-            matFileName = fullfile(path_id, sprintf('GDN%04d_%s.mat', numericID, scenario));
-            vidFileName = (fullfile(path_id, sprintf('GD%04d_%s.mp4', numericID, scenario)));
-            
-            %cleanup for old .mat files:
+ if b_lab
+    %% --- NEW S2P / PPG LOGIC ---
 
-            numericID = IDrange(indx);
-            if  (numericID > 40 ) &&  (b_CLEAR_OLD_mat) 
-                ID = sprintf('GDN%04d', numericID); 
-                path_id = fullfile(path, ID);       
-                if exist(path_id, 'dir')
-                    target_files = fullfile(path_id, '*.mat');
-                    delete(target_files);
-                    fprintf('Cleared old .mat files from: %s\n', path_id);
-                else
-                    fprintf('Folder not found, skipping: %s\n', path_id);
-                end
-            end
+    numericID = IDrange(indx);
 
+    s2pFileName = fullfile(path_id, sprintf('GD%04d_%s.s2p', numericID, scenario));
+    matFileName = fullfile(path_id, sprintf('GDN%04d_%s.mat', numericID, scenario));
+    vidFileName = fullfile(path_id, sprintf('GD%04d_%s.mp4', numericID, scenario));
 
-           
-            if exist(s2pFileName, 'file') && ~exist(matFileName, 'file')
-                fprintf('Found s2pFile %s, converting to matFile %s \n', s2pFileName, matFileName);
-                [~,radar_i,radar_q] = convertS2PtoMAT(s2pFileName, matFileName);
-            elseif exist(matFileName, 'file') 
-                warning('old matFile %s  found.', matFileName);
-            elseif ~exist(s2pFileName, 'file') 
-                warning('s2pFileName file %s not found. Skipping.', s2pFileName);
-                continue;
-            end
+    % Cleanup for old .mat files
+    if (numericID > 40) && b_CLEAR_OLD_mat
+        ID = sprintf('GDN%04d', numericID);
+        path_id = fullfile(path, ID);
 
-            mVideoPPG = VideoReader(vidFileName);
-            tfm_ecg =   mVideoPPG;
-            radar =  load(matFileName);
-            radar_i =  radar.radar_i;
-            radar_q =   radar.radar_q;
-            fs_radar = radar.fs_radar;
-
-            dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_i,radar_q,0,b_lab);
-            
-            b_comp = 1;
-            b_mode = 1;
-            if b_comp 
-            dataFull{indx,sz}.IQcompensation(1,b_mode);
-            %(b_plot, b_result_pick) b_result_pick = 0 for no change, 1 for simple, 2 for GS as Singeh et al paper.
-            end      
-            dataFull{indx,sz}.calculateRadarDistFromIQ();
-            
+        if exist(path_id, 'dir')
+            target_files = fullfile(path_id, '*.mat');
+            delete(target_files);
+            fprintf('Cleared old .mat files from: %s\n', path_id);
         else
-            %% --- LEGACY .MAT LOGIC ---
-            files_synced_mat = dir(fullfile(path_id, sprintf('*%s*.mat', scenario)));
-            if isempty(files_synced_mat)
-                fprintf('---- skipped\n');
-                continue;
-            end
-            load(fullfile(path_id, files_synced_mat(1).name));
-            output.(ID).(scenario) = struct;
-               [radar_i_compensated,radar_q_compensated,phase_compensated,radar_dist] = elreko(radar_i,radar_q,measurement_info{1},0);
-               [radar_respiration, radar_pulse, radar_heartsound, tfm_respiration] = getVitalSigns(radar_dist, fs_radar, tfm_z0, fs_z0);
-               if ECG_CHANNEL(numericID) == 1
-                    tfm_ecg = fillmissing(tfm_ecg1,'constant',0); 
-                else
-                    tfm_ecg = fillmissing(tfm_ecg2,'constant',0); 
-                end
-                tfm_ecg = filtButter(tfm_ecg,fs_ecg,4,[1 20],'bandpass');
-                 if (numericID==10 && scenario=="TiltDown")
-                    tfm_ecg=tfm_ecg(2000:end);
-                    radar_dist=radar_dist(2000:end);
-                 end
-                % Init obj
-                %%%OLD RETURN TO THIS!!!
-                %%dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_dist,0,tfm_respiration,b_lab);
-                warning("@TESTING: Using IQ compensation instead of RADAR_DIST data for testing @");
-                dataFull{indx,sz} = radarClass(ID,scenario,fs_radar,tfm_ecg,radar_i,radar_q,tfm_respiration,b_lab);
-                dataFull{indx,sz}.IQcompensation(1,0);
-                %(b_plot, b_result_pick) = b_result_pick - 0 for no change, 1 for simple, 2 for GS as Singeh et al.
+            fprintf('Folder not found, skipping: %s\n', path_id);
         end
+    end
+
+    %% --- S2P handling ---
+    if exist(s2pFileName, 'file') && ~exist(matFileName, 'file')
+        fprintf('Found s2pFile %s, converting to matFile %s \n', s2pFileName, matFileName);
+        [~, radar_i, radar_q] = convertS2PtoMAT(s2pFileName, matFileName);
+
+    elseif exist(matFileName, 'file')
+        warning('old matFile %s found.', matFileName);
+
+    elseif ~exist(s2pFileName, 'file')
+        warning('s2pFileName file %s not found. Skipping.', s2pFileName);
+        continue;
+    end
+
+    %% --- PPG INPUT ---
+    if numericID > 50
+        % New format: CSV PPG file
+        % File only needs to contain scenario name
+        % Example:
+        % GDN0051_Apnea_XXXX.csv
+        % GDN0051_Resting_XXXX.csv
+        % GDN0051_Number_XXXX.csv
+
+        csvPattern = fullfile(path_id, sprintf('*%s*.csv', scenario));
+        csvFiles = dir(csvPattern);
+
+        if isempty(csvFiles)
+            warning('PPG csv file not found for ID %d, scenario %s. Skipping.', ...
+                numericID, scenario);
+            continue;
+        end
+
+        csvPath = fullfile(path_id, csvFiles(1).name);
+
+        % Read CSV (skip 6 header lines)
+        ppgMat = readmatrix(csvPath, ...
+            'FileType', 'text', ...
+            'NumHeaderLines', 6);
+
+        % Column mapping from your files:
+        % 1 = RED
+        % 2 = IR
+        % 3 = RED without ambient
+        % 4 = IR without ambient
+
+        tfm_ecg = ppgMat(:,4);   % IR without ambient channel
+
+    else
+        % Old lab format: MP4 PPG video
+        mVideoPPG = VideoReader(vidFileName);
+        tfm_ecg = mVideoPPG;
+    end
+
+    %% --- LOAD RADAR MAT ---
+    radar = load(matFileName);
+
+    radar_i   = radar.radar_i;
+    radar_q   = radar.radar_q;
+    fs_radar  = radar.fs_radar;
+
+    dataFull{indx,sz} = radarClass( ...
+        ID, ...
+        scenario, ...
+        fs_radar, ...
+        tfm_ecg, ...
+        radar_i, ...
+        radar_q, ...
+        0, ...
+        b_lab);
+
+    b_comp = 1;
+    b_mode = 1;
+
+    if b_comp
+        dataFull{indx,sz}.IQcompensation(1, b_mode);
+    end
+
+    dataFull{indx,sz}.calculateRadarDistFromIQ();
+
+else
+    %% --- LEGACY .MAT LOGIC ---
+
+    files_synced_mat = dir(fullfile(path_id, sprintf('*%s*.mat', scenario)));
+
+    if isempty(files_synced_mat)
+        fprintf('---- skipped\n');
+        continue;
+    end
+
+    load(fullfile(path_id, files_synced_mat(1).name));
+
+    output.(ID).(scenario) = struct;
+
+    [radar_i_compensated, radar_q_compensated, phase_compensated, radar_dist] = ...
+        elreko(radar_i, radar_q, measurement_info{1}, 0);
+
+    [radar_respiration, radar_pulse, radar_heartsound, tfm_respiration] = ...
+        getVitalSigns(radar_dist, fs_radar, tfm_z0, fs_z0);
+
+    if ECG_CHANNEL(numericID) == 1
+        tfm_ecg = fillmissing(tfm_ecg1, 'constant', 0);
+    else
+        tfm_ecg = fillmissing(tfm_ecg2, 'constant', 0);
+    end
+
+    tfm_ecg = filtButter(tfm_ecg, fs_ecg, 4, [1 20], 'bandpass');
+
+    if numericID == 10 && scenario == "TiltDown"
+        tfm_ecg   = tfm_ecg(2000:end);
+        radar_dist = radar_dist(2000:end);
+    end
+
+    dataFull{indx,sz} = radarClass( ...
+        ID, ...
+        scenario, ...
+        fs_radar, ...
+        tfm_ecg, ...
+        radar_dist, ...
+        0, ...
+        tfm_respiration, ...
+        b_lab);
+end
         %% 5. frequency domain processing
         tic
         dataFull{indx,sz}.DownSampleRadar(resampleFS)
@@ -200,9 +265,7 @@ for indx = 1:length(IDrange)
             dataFull{indx,sz}.NormalizeHrSignal(1.0);
 
             dataFull{indx,sz}.kalmanSmoothRadarDist();
-            if ~b_lab 
-                dataFull{indx,sz}.RrFilter(lpf_05,hpf_005);
-            end
+            
            
     
         end

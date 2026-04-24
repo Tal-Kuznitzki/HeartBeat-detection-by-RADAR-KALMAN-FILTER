@@ -104,25 +104,26 @@ classdef radarClass < handle
                 obj.radar_dist=radar_i;
                 sprintf('Only one signal detected, saved as radar_dist')
             else
-            if (b_ppg)
-                %convert obj.signal_gt from vid to signal
-                obj.fs_gt = gtSignal.FrameRate;
-                vidLen = gtSignal.Duration;
-                h = gtSignal.Height;
-                w = gtSignal.Width;
-                mVid = read(gtSignal);
-                mRed = squeeze(mVid(:,:,1,:));
-                vRed = double(squeeze(mean(mean(mRed,1),2)));
-                
-                % % Trimming the first 0.1 seconds
-                % % trim_sec = 0.2;
-                % % trim_samples_gt = round(trim_sec * obj.fs_gt);
-                % % vRed = vRed(trim_samples_gt + 1 : end);
-
-                obj.signal_gt = vRed;
-                obj.ref = "PPG" ; 
-                gtSignal=vRed;
-
+            if b_ppg
+                if isnumeric(gtSignal) || isvector(gtSignal)
+                    % New CSV PPG case: gtSignal is already a 1D signal
+                    obj.fs_gt = 500;
+                    obj.signal_gt = gtSignal(:);   % force column vector
+                    obj.ref = "PPG";
+                    gtSignal = obj.signal_gt;
+            
+                else
+                    % Old MP4 PPG case: gtSignal is a VideoReader object
+                    obj.fs_gt = gtSignal.FrameRate;
+            
+                    mVid = read(gtSignal);
+                    mRed = squeeze(mVid(:,:,1,:));
+                    vRed = double(squeeze(mean(mean(mRed,1),2)));
+            
+                    obj.signal_gt = vRed(:);       % force column vector
+                    obj.ref = "PPG";
+                    gtSignal = obj.signal_gt;
+                end
             end
             obj.radar_i = radar_i;
             obj.radar_q = radar_q;
