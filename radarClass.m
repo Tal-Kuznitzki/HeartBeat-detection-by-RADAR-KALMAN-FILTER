@@ -107,6 +107,7 @@ classdef radarClass < handle
             if b_ppg
                 if isnumeric(gtSignal) || isvector(gtSignal)
                     % New CSV PPG case: gtSignal is already a 1D signal
+                    len = min(length(obj.signal_gt),length(obj.radar_dist))
                     obj.fs_gt = 500;
                     obj.signal_gt = 1e3*gtSignal(:);   % force column vector
                     obj.ref = "PPG";
@@ -738,6 +739,20 @@ function timeFitting(obj)
     obj.CorrKalmanHr_on_gt_time=hrEst_on_GT;
     obj.CorrGt= hrGt_on_GT;
     obj.CorrMedianHr_on_gt_time = hrMed_on_GT;
+
+
+    %%% trimming obj.hrEst, and corrGt 
+       
+    % max_len = max(length(obj.HrEst),length(obj.CorrGt)) ;
+    % 
+    % 
+    % 
+    % 
+    % obj.hrEst = obj.hrEst(max_len);
+    % obj.CorrGt = obj.CorrGt(max_len);
+    % 
+
+
     obj.kalmanCorrValue = corr(hrEst_on_GT, hrGt_on_GT, 'Rows','complete');
     obj.medianCorrValue = corr(hrMed_on_GT, hrGt_on_GT, 'Rows','complete');
 
@@ -1593,6 +1608,7 @@ function [bestQ, bestR] = EstimateKalmanCoeffs(obj, filterType)
     % fprintf('[AutoTune] %s: Q=%.1f, R=%.1f\n', scen, bestQ, bestR);
 end
 
+
 function [optQ, optR] = OptimizeKalman_Innovation(obj, maxIter, b_plot)
     % OptimizeKalman_Innovation (with Visual Progress)
     % Iteratively tunes Q to match the Theoretical Innovation Variance.
@@ -1638,10 +1654,33 @@ function [optQ, optR] = OptimizeKalman_Innovation(obj, maxIter, b_plot)
 
     % --- 3. ITERATION LOOP ---
     for iter = 1:maxIter
+        N = length(z_all);
+    A = 1; H = 1; 
+    Q = currentQ * dt; R = currentR;
+    x = meas(1); P = 10;
+    
+    nu_vec = nan(N,1); S_vec = nan(N,1);
+    
+    for k = 1:N
+        % Predict
+        x_pred = A*x; 
+        P_pred = A*P*A' + Q;
         
-        % A. Run Filter (Minimal Implementation for Speed)
-        [nu_vec, S_vec] = local_GetInnovationStats(z_all, dt, currentQ, currentR);
+        % Innovation
+        z = meas(k);
+        S = H*P_pred*H' + R;
+        nu = z - H*x_pred;
         
+        nu_vec(k) = nu;
+        S_vec(k) = S;
+        
+        % Update
+        K = P_pred*H'/S;
+        x = x_pred + K*nu;
+        P = (1 - K*H)*P_pred;
+    end
+
+
         % B. Calculate NIS (Normalized Innovation Squared)
         % Metric: mean( error^2 / predicted_variance )
         % Perfect consistency means this equals 1.0
@@ -1732,37 +1771,6 @@ function [optQ, optR] = OptimizeKalman_Innovation(obj, maxIter, b_plot)
         drawnow;
     end
 end
-
-% --- HELPER: Minimal Kalman for Stats ---
-function [nu_vec, S_vec] = local_GetInnovationStats(meas, dt, Q_in, R_in)
-    N = length(meas);
-    A = 1; H = 1; 
-    Q = Q_in * dt; R = R_in;
-    x = meas(1); P = 10;
-    
-    nu_vec = nan(N,1); S_vec = nan(N,1);
-    
-    for k = 1:N
-        % Predict
-        x_pred = A*x; 
-        P_pred = A*P*A' + Q;
-        
-        % Innovation
-        z = meas(k);
-        S = H*P_pred*H' + R;
-        nu = z - H*x_pred;
-        
-        nu_vec(k) = nu;
-        S_vec(k) = S;
-        
-        % Update
-        K = P_pred*H'/S;
-        x = x_pred + K*nu;
-        P = (1 - K*H)*P_pred;
-    end
-end
-
-
 %% PLOTS        
         % ---------------------------------------------------------
         % Plotting Functions
@@ -1861,14 +1869,30 @@ end
             title(sprintf('Respiration Rate Comparison - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
            
             if ~isempty(obj.RespEst)
-                plot(obj.RespEst, 'b.-', 'LineWidth', 1.5, 'DisplayName', 'Radar Respiration');
+                %%%%%
+                % Peak times in seconds
+                respPeaksSec = obj.RespPeaks;
+                
+                % Respiration rate from intervals
+                rr = 60 ./ diff(respPeaksSec);
+                
+                % Timestamp of each RR estimate
+                rrTime = respPeaksSec(1:end-1) + diff(respPeaksSec)/2;
+                
+                % 1 Hz timeline
+                t1Hz = 0:1:max(respPeaksSec);
+                
+                % Interpolated respiration rate per second
+                rr1Hz = interp1(rrTime, rr, t1Hz, 'linear', 'extrap');
+
+                plot(rr1Hz, 'b.-', 'LineWidth', 1.5, 'DisplayName', 'Radar Respiration');
             end
 
             if ~isempty(obj.RespGtEst)
                  plot(obj.RespGtEst, 'r.-', 'LineWidth', 1.5, 'DisplayName', 'TFM Respiration');           
             end
             ylabel('Breaths Per Minute'); 
-            xlabel('Window Index / Time');
+            xlabel('Respiration Index');
             legend('show', 'Location', 'best'); 
             grid on; hold off;
         end

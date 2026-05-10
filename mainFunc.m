@@ -35,9 +35,9 @@ end
 b_CLEAR_OLD = false;
 b_plot_ALL = false;
 
-IDrange = [55] ; %11:12;  
+IDrange = [51:56] ; %11:12;  
 
-scenarios = ["Number"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios = ["Resting","Apnea","number"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
@@ -179,9 +179,9 @@ for indx = 1:length(IDrange)
 
     b_comp = 1;
     b_mode = 1;
-
+    b_plot = 0;
     if b_comp
-        dataFull{indx,sz}.IQcompensation(1, b_mode);
+        dataFull{indx,sz}.IQcompensation(b_plot, b_mode);
     end
 
     dataFull{indx,sz}.calculateRadarDistFromIQ();
@@ -264,7 +264,7 @@ end
             filteringTime = toc;         
             dataFull{indx,sz}.NormalizeHrSignal(1.0);
 
-            dataFull{indx,sz}.kalmanSmoothRadarDist();
+            %dataFull{indx,sz}.kalmanSmoothRadarDist();
             
            
     
@@ -289,17 +289,20 @@ end
         % after median filter on each.
 
 
-        [Q,R] = dataFull{indx,sz}.ProduceKalmanCoeff(); 
-        Q
-        R
-        [q_auto, r_auto] = dataFull{indx,sz}.EstimateKalmanCoeffs('BiState');
-        % Apply them
-        q_auto
-        r_auto
+        % % [Q,R] = dataFull{indx,sz}.ProduceKalmanCoeff(); 
+        % Q
+        % R
+        % [q_auto, r_auto] = dataFull{indx,sz}.EstimateKalmanCoeffs('BiState');
+        % % Apply them
+        % q_auto
+        % r_auto
         
         %dataFull{indx,sz}.kalmanFilterBeats_nH(q_auto,r_auto) 
         dataFull{indx,sz}.KalmanFilterHrGrid(0); %1 to draw CAF NEW
         
+        dataFull{indx,sz}.OptimizeKalman_Innovation(850,0);
+
+
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
         % generates HrPeaksAfterKalman and HrEstAfterKalman
 
@@ -318,7 +321,7 @@ end
         %%
         % show all results with CorrGt and CorrKalmanHr
         dataFull{indx,sz}.CalcError(dataFull{indx,sz}.CorrKalmanHr_on_gt_time);
-        %dataFull{indx,sz}.PlotHrCovAndBA();
+        dataFull{indx,sz}.PlotHrCovAndBA();
         % % dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
         % %    'HR after Kalman & time fit',...
         % %     dataFull{indx,sz}.CorrKalmanHr_on_gt_time,...
