@@ -721,6 +721,7 @@ function timeFitting(obj)
     hrEst  = obj.HrEstAfterKalman;             % bpm
     tEstHr = (tEstPk(1:end-1) + tEstPk(2:end))/2;  % midpoint time per IBI
     tGtPk = obj.gtPeaks(:);                % seconds
+    
     hrGt  = obj.HrGtEstAfterMedian;
     %hrGt  = obj.HrGtEst(:);
     tGtHr = (tGtPk(1:end-1) + tGtPk(2:end))/2;
@@ -1770,6 +1771,308 @@ function [optQ, optR] = OptimizeKalman_Innovation(obj, maxIter, b_plot)
         
         drawnow;
     end
+end
+function [optQ, optR, Rk] = OptimizeKalman_Innovation_AdaptiveR(obj, maxIter, b_plot)
+% OptimizeKalman_Innovation_AdaptiveR
+%
+% Optimizes Q using innovation consistency, while using adaptive R(k)
+% to reduce trust in upward/downward HR spikes.
+%
+% At the end, runs one final Kalman filtering pass using the optimized
+% Q and R, and saves only:
+%
+%   obj.HrEstAfterKalman
+%
+% Inputs:
+%   maxIter - number of innovation tuning iterations
+%   b_plot  - whether to plot diagnostics
+%
+% Outputs:
+%   optQ - optimized process noise
+%   optR - optimized base measurement noise
+%   Rk   - per-sample adaptive R multiplier
+
+    if nargin < 2 || isempty(maxIter)
+        maxIter = 15;
+    end
+
+    if nargin < 3 || isempty(b_plot)
+        b_plot = true;
+    end
+
+    % ------------------------------------------------------------
+    % 1. Choose measurement signal
+    % ------------------------------------------------------------
+    if ~isempty(obj.HrEstAfterMedian)
+        meas = obj.HrEstAfterMedian(:);
+    else
+        meas = obj.HrEst(:);
+    end
+
+    if isempty(meas)
+        obj.HrEstAfterKalman = [];
+        optQ = NaN;
+        optR = NaN;
+        Rk = [];
+        return;
+    end
+
+    % Use raw HrEst for spike detection if available
+    if ~isempty(obj.HrEst)
+        vZ = obj.HrEst(:);
+    else
+        vZ = meas;
+    end
+
+    % Match lengths
+    Nfull = min(numel(vZ), numel(meas));
+    vZ = vZ(1:Nfull);
+    meas = meas(1:Nfull);
+
+    validMask = isfinite(meas) & meas > 0;
+    z_all = meas(validMask);
+
+    if numel(z_all) < 10
+        obj.HrEstAfterKalman = meas;
+        optQ = NaN;
+        optR = NaN;
+        Rk = ones(size(meas));
+        warning('Not enough valid HR samples for Kalman innovation tuning.');
+        return;
+    end
+
+    % ------------------------------------------------------------
+    % 2. Time step
+    % ------------------------------------------------------------
+    Fs = obj.fs_new;
+
+    if isempty(Fs) || ~isfinite(Fs) || Fs <= 0
+        Fs = 1;
+    end
+
+    dt = 10 / Fs;
+
+    % ------------------------------------------------------------
+    % 3. Build adaptive R(k) multiplier
+    % ------------------------------------------------------------
+    hrMed = movmedian(vZ, 35, 'Endpoints', 'shrink');
+
+    % Clip both upward and downward spikes before re-estimating median
+    vZclip = min(vZ, 1.45 * hrMed);
+    vZclip = max(vZclip, 0.70 * hrMed);
+
+    hrMed = movmedian(vZclip, 15, 'Endpoints', 'shrink');
+
+    ratio = vZ ./ max(hrMed, eps);
+
+    isUpSpike   = ratio > 1.45;
+    isDownSpike = ratio < 0.70;
+
+    Rk = 0.3*ones(Nfull, 1);
+
+    % Upward spike: measurement is suspicious, inflate R
+    Rk(isUpSpike) = 20 * min(50, (ratio(isUpSpike) / 1.45).^2);
+
+    % Downward spike: symmetric inflation
+    Rk(isDownSpike) = 20 * min(50, (0.70 ./ max(ratio(isDownSpike), eps)).^2);
+
+    % Only valid entries are used during optimization/filtering
+    Rk_all = Rk(validMask);
+
+    % ------------------------------------------------------------
+    % 4. Initialize R from high-frequency noise estimate
+    % ------------------------------------------------------------
+    diff_sig = diff(z_all);
+
+    if numel(diff_sig) >= 3
+        noise_est = median(abs(diff_sig - median(diff_sig))) * 1.4826;
+        currentR = (noise_est^2) / 2;
+    else
+        currentR = 10;
+    end
+
+    if ~isfinite(currentR) || currentR < 0.1
+        currentR = 0.1;
+    end
+
+    % Initial Q
+    currentQ = 50;
+
+    % History for plotting
+    hist_Q = [];
+    hist_R = [];
+    hist_NIS = [];
+    hist_Iter = [];
+
+    fprintf('--- Starting Innovation Tuning with Adaptive R(k) ---\n');
+
+    % ------------------------------------------------------------
+    % 5. Innovation tuning loop
+    % ------------------------------------------------------------
+    for iter = 1:maxIter
+
+        N = numel(z_all);
+
+        A = 1;
+        H = 1;
+
+        Q = currentQ * dt;
+
+        x = z_all(1);
+        P = 10;
+
+        nu_vec = nan(N, 1);
+        S_vec  = nan(N, 1);
+
+        for k = 1:N
+
+            % Predict
+            x_pred = A * x;
+            P_pred = A * P * A' + Q;
+
+            % Adaptive measurement noise
+            R_eff = currentR * Rk_all(k);
+
+            % Innovation
+            z = z_all(k);
+            S = H * P_pred * H' + R_eff;
+            nu = z - H * x_pred;
+
+            nu_vec(k) = nu;
+            S_vec(k) = S;
+
+            % Update
+            K = P_pred * H' / S;
+            x = x_pred + K * nu;
+            P = (1 - K * H) * P_pred;
+        end
+
+        % Normalized Innovation Squared
+        nis_vec = (nu_vec.^2) ./ max(S_vec, eps);
+
+        % Robust innovation consistency metric
+        nis_val = median(nis_vec, 'omitnan');
+
+        hist_Q = [hist_Q; currentQ]; %#ok<AGROW>
+        hist_R = [hist_R; currentR]; %#ok<AGROW>
+        hist_NIS = [hist_NIS; nis_val]; %#ok<AGROW>
+        hist_Iter = [hist_Iter; iter]; %#ok<AGROW>
+
+        fprintf('Iter %2d: Q=%8.3f | base R=%8.3f | median NIS=%.3f', ...
+            iter, currentQ, currentR, nis_val);
+
+        if abs(nis_val - 1.0) < 0.05
+            fprintf(' --> CONVERGED\n');
+            break;
+        end
+
+        % Update Q only.
+        % Adaptive R(k) handles local bad measurements.
+        gain = nis_val^0.75;
+
+        gain = min(gain, 5.0);
+        gain = max(gain, 0.2);
+
+        currentQ = currentQ * gain;
+
+        currentQ = max(currentQ, 0.001);
+        currentQ = min(currentQ, 10000);
+
+        fprintf('\n');
+    end
+
+    optQ = currentQ;
+    optR = currentR;
+
+    % ------------------------------------------------------------
+    % 6. Final filtering pass using optimized Q and R
+    % ------------------------------------------------------------
+    N = numel(z_all);
+
+    A = 1;
+    H = 1;
+
+    Q = optQ * dt;
+
+    x = z_all(1);
+    P = 10;
+
+    xhat_valid = nan(N, 1);
+
+    for k = 1:N
+
+        % Predict
+        x_pred = A * x;
+        P_pred = A * P * A' + Q;
+
+        % Adaptive measurement noise
+        R_eff = optR * Rk_all(k);
+
+        % Innovation
+        z = z_all(k);
+        S = H * P_pred * H' + R_eff;
+        nu = z - H * x_pred;
+
+        % Update
+        K = P_pred * H' / S;
+        x = x_pred + K * nu;
+        P = (1 - K * H) * P_pred;
+
+        % Save filtered estimate
+        xhat_valid(k) = x;
+    end
+
+    % Restore filtered values into original signal length
+    xhatFull = nan(size(meas));
+    xhatFull(validMask) = xhat_valid;
+
+    % Save only the final filtered signal to the object
+    obj.HrEstAfterKalman = xhatFull;
+
+    % ------------------------------------------------------------
+    % 7. Optional plots
+    % ------------------------------------------------------------
+    if b_plot
+        figure('Name', 'Kalman Innovation Optimization - Adaptive R(k)', 'Color', 'w');
+
+        subplot(2,2,1);
+        plot(hist_Iter, hist_Q, '-o', 'LineWidth', 2);
+        grid on;
+        xlabel('Iteration');
+        ylabel('Q');
+        title('Q Convergence');
+        set(gca, 'YScale', 'log');
+
+        subplot(2,2,2);
+        plot(hist_Iter, hist_NIS, '-s', 'LineWidth', 2);
+        yline(1.0, '--k', 'Target NIS = 1');
+        grid on;
+        xlabel('Iteration');
+        ylabel('Median NIS');
+        title('Innovation Consistency');
+
+        subplot(2,2,3);
+        plot(Rk, 'LineWidth', 1);
+        grid on;
+        xlabel('Sample');
+        ylabel('R multiplier');
+        title('Adaptive R(k) Inflation');
+
+        subplot(2,2,4);
+        normalized_inn = nu_vec ./ sqrt(max(S_vec, eps));
+        histogram(normalized_inn, 30, 'Normalization', 'pdf');
+        hold on;
+
+        x_dummy = linspace(-4, 4, 200);
+        y_dummy = (1 / sqrt(2*pi)) * exp(-0.5 * x_dummy.^2);
+        plot(x_dummy, y_dummy, 'r', 'LineWidth', 2);
+
+        grid on;
+        title('Final Standardized Innovation');
+        xlabel('\nu / sqrt(S)');
+        legend('Actual', 'Ideal N(0,1)');
+    end
+
 end
 %% PLOTS        
         % ---------------------------------------------------------

@@ -37,7 +37,7 @@ b_plot_ALL = false;
 
 IDrange = [51:56] ; %11:12;  
 
-scenarios = ["Resting","Apnea","number"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios = ["Resting","Apnea","Number"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
@@ -283,7 +283,7 @@ end
 
 
 
-        dataFull{indx,sz}.MedianHr(); 
+        
         % based on  HrEst, HrGtEst 
         % generates HrEstAfterMedian and HrGtEstAfterMedian
         % after median filter on each.
@@ -298,11 +298,11 @@ end
         % r_auto
         
         %dataFull{indx,sz}.kalmanFilterBeats_nH(q_auto,r_auto) 
-        dataFull{indx,sz}.KalmanFilterHrGrid(0); %1 to draw CAF NEW
+        %dataFull{indx,sz}.KalmanFilterHrGrid(0); %1 to draw CAF NEW
         
-        dataFull{indx,sz}.OptimizeKalman_Innovation(850,0);
-
-
+        %dataFull{indx,sz}.OptimizeKalman_Innovation(850,0);
+        dataFull{indx,sz}.OptimizeKalman_Innovation_AdaptiveR(850,0);
+        dataFull{indx,sz}.MedianHr(); 
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
         % generates HrPeaksAfterKalman and HrEstAfterKalman
 
@@ -316,8 +316,8 @@ end
         dataFull{indx,sz}.timeFitting(); %generates CORRELATED HR
       
          dataFull{indx,sz}.plot_examples();
-         dataFull{indx,sz}.plotRespRates();
-         dataFull{indx,sz}.plotRespSignals();
+        % dataFull{indx,sz}.plotRespRates();
+        % dataFull{indx,sz}.plotRespSignals();
         %%
         % show all results with CorrGt and CorrKalmanHr
         dataFull{indx,sz}.CalcError(dataFull{indx,sz}.CorrKalmanHr_on_gt_time);
