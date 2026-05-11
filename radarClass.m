@@ -1868,7 +1868,7 @@ function [optQ, optR, Rk] = OptimizeKalman_Innovation_AdaptiveR(obj, maxIter, b_
     isUpSpike   = ratio > 1.45;
     isDownSpike = ratio < 0.70;
 
-    Rk = 0.3*ones(Nfull, 1);
+    Rk = 0.5*ones(Nfull, 1);
 
     % Upward spike: measurement is suspicious, inflate R
     Rk(isUpSpike) = 20 * min(50, (ratio(isUpSpike) / 1.45).^2);
@@ -2071,6 +2071,183 @@ function [optQ, optR, Rk] = OptimizeKalman_Innovation_AdaptiveR(obj, maxIter, b_
         title('Final Standardized Innovation');
         xlabel('\nu / sqrt(S)');
         legend('Actual', 'Ideal N(0,1)');
+    end
+
+end
+function [optQ_parts, optR_parts, RkFull] = OptimizeKalman_NSubSignals(obj, maxIter, b_plot,nSignals)
+% OptimizeKalman_4SubSignals
+%
+% Splits the HR signal into 4 contiguous sub-signals, runs
+% OptimizeKalman_Innovation_AdaptiveR on each sub-signal separately,
+% and combines the filtered outputs back into one full signal.
+%
+% This is useful when different parts of the HR estimate have different
+% noise / dynamics, so each segment gets its own optimized Q.
+%
+% Saves only:
+%
+%   obj.HrEstAfterKalman
+%
+% Inputs:
+%   maxIter - number of innovation tuning iterations per sub-signal
+%   b_plot  - whether to plot diagnostics for each sub-signal
+%
+% Outputs:
+%   optQ_parts - 4x1 optimized Q values, one per sub-signal
+%   optR_parts - 4x1 optimized base R values, one per sub-signal
+%   RkFull     - full-length adaptive R multiplier, stitched from parts
+
+    if nargin < 2 || isempty(maxIter)
+        maxIter = 15;
+    end
+
+    if nargin < 3 || isempty(b_plot)
+        b_plot = false;
+    end
+     if nargin < 4 || isempty(nSignals)
+        nSignals = 4;
+    end
+    nParts = nSignals;
+
+    % ------------------------------------------------------------
+    % 1. Choose full measurement signal, same logic as the inner function
+    % ------------------------------------------------------------
+    if ~isempty(obj.HrEstAfterMedian)
+        measFull = obj.HrEstAfterMedian(:);
+    else
+        measFull = obj.HrEst(:);
+    end
+
+    if isempty(measFull)
+        obj.HrEstAfterKalman = [];
+        optQ_parts = NaN(nParts, 1);
+        optR_parts = NaN(nParts, 1);
+        RkFull = [];
+        return;
+    end
+
+    % Raw HR is used by the inner function for spike detection.
+    if ~isempty(obj.HrEst)
+        hrRawFull = obj.HrEst(:);
+    else
+        hrRawFull = measFull;
+    end
+
+    % Match lengths
+    Nfull = min(numel(measFull), numel(hrRawFull));
+    measFull = measFull(1:Nfull);
+    hrRawFull = hrRawFull(1:Nfull);
+
+    % Save original object fields so we can restore them later
+    origHrEst = obj.HrEst;
+    origHrEstAfterMedian = obj.HrEstAfterMedian;
+    origHrEstAfterKalman = obj.HrEstAfterKalman;
+
+    % Output containers
+    xhatFull = nan(Nfull, 1);
+    RkFull = nan(Nfull, 1);
+
+    optQ_parts = NaN(nParts, 1);
+    optR_parts = NaN(nParts, 1);
+
+    % ------------------------------------------------------------
+    % 2. Build 4 contiguous index ranges
+    % ------------------------------------------------------------
+    edges = round(linspace(1, Nfull + 1, nParts + 1));
+
+    fprintf('--- Running Kalman optimization on %d sub-signals ---\n', nParts);
+
+    % ------------------------------------------------------------
+    % 3. Run existing optimizer on each sub-signal
+    % ------------------------------------------------------------
+    for iPart = 1:nParts
+
+        idxStart = edges(iPart);
+        idxEnd   = edges(iPart + 1) - 1;
+
+        if idxEnd < idxStart
+            continue;
+        end
+
+        idx = idxStart:idxEnd;
+
+        fprintf('\n=== Sub-signal %d/%d | samples %d:%d ===\n', ...
+            iPart, nParts, idxStart, idxEnd);
+
+        % Temporarily replace object signals with this segment
+        obj.HrEst = hrRawFull(idx);
+
+        if ~isempty(origHrEstAfterMedian)
+            obj.HrEstAfterMedian = measFull(idx);
+        else
+            obj.HrEstAfterMedian = [];
+        end
+
+        obj.HrEstAfterKalman = [];
+
+        % Run your existing function on the segment
+        [optQ_i, optR_i, Rk_i] = obj.OptimizeKalman_Innovation_AdaptiveR(maxIter, b_plot);
+
+        % Store optimized parameters
+        optQ_parts(iPart) = optQ_i;
+        optR_parts(iPart) = optR_i;
+
+        % Collect filtered segment
+        xhat_i = obj.HrEstAfterKalman(:);
+
+        % Safety: match length in case valid/invalid handling changes length
+        nCopy = min(numel(idx), numel(xhat_i));
+        xhatFull(idx(1:nCopy)) = xhat_i(1:nCopy);
+
+        % Collect Rk segment
+        if ~isempty(Rk_i)
+            Rk_i = Rk_i(:);
+            nCopyR = min(numel(idx), numel(Rk_i));
+            RkFull(idx(1:nCopyR)) = Rk_i(1:nCopyR);
+        end
+    end
+
+    % ------------------------------------------------------------
+    % 4. Restore original object signals
+    % ------------------------------------------------------------
+    obj.HrEst = origHrEst;
+    obj.HrEstAfterMedian = origHrEstAfterMedian;
+
+    % Save only final combined filtered signal
+    obj.HrEstAfterKalman = xhatFull;
+
+    % If something went wrong and all output is NaN, restore previous result
+    if all(isnan(xhatFull))
+        warning('All 4-part Kalman outputs are NaN. Restoring previous HrEstAfterKalman.');
+        obj.HrEstAfterKalman = origHrEstAfterKalman;
+    end
+
+    % ------------------------------------------------------------
+    % 5. Optional summary plot
+    % ------------------------------------------------------------
+    if b_plot
+        figure('Name', '4-Part Kalman Combined Result', 'Color', 'w');
+
+        subplot(3,1,1);
+        plot(measFull, 'LineWidth', 1);
+        grid on;
+        title('Input HR Measurement');
+        xlabel('Sample');
+        ylabel('HR [BPM]');
+
+        subplot(3,1,2);
+        plot(obj.HrEstAfterKalman, 'LineWidth', 1.5);
+        grid on;
+        title('Combined 4-Part Kalman Output');
+        xlabel('Sample');
+        ylabel('HR [BPM]');
+
+        subplot(3,1,3);
+        stairs(RkFull, 'LineWidth', 1);
+        grid on;
+        title('Combined Adaptive R(k) Multiplier');
+        xlabel('Sample');
+        ylabel('R multiplier');
     end
 
 end

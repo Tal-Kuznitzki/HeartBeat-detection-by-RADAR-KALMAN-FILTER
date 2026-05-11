@@ -301,7 +301,8 @@ end
         %dataFull{indx,sz}.KalmanFilterHrGrid(0); %1 to draw CAF NEW
         
         %dataFull{indx,sz}.OptimizeKalman_Innovation(850,0);
-        dataFull{indx,sz}.OptimizeKalman_Innovation_AdaptiveR(850,0);
+        dataFull{indx,sz}.OptimizeKalman_NSubSignals(150,false,2);
+        %dataFull{indx,sz}.OptimizeKalman_Innovation_AdaptiveR(850,0);
         dataFull{indx,sz}.MedianHr(); 
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
         % generates HrPeaksAfterKalman and HrEstAfterKalman
