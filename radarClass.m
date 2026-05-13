@@ -522,6 +522,7 @@ end
             obj.HrEst = 60 ./  diff(obj.HrPeaks);
             obj.HrGtEst = 60 ./  diff(obj.gtPeaks); 
             obj.RespEst = 60 ./  diff(obj.RespPeaks);
+            [ ~, ~, obj.RespEst] = RespRateFromPeaks(obj.RespPeaks, 8);
             obj.RespGtEst = 60 ./ diff(obj.RespPeaks_gt);            
         end
         function ComputePreFilterStats(obj)
@@ -2364,7 +2365,7 @@ end
                 
                 % Interpolated respiration rate per second
                 rr1Hz = interp1(rrTime, rr, t1Hz, 'linear', 'extrap');
-
+                rr1Hz = obj.RespEst;
                 plot(rr1Hz, 'b.-', 'LineWidth', 1.5, 'DisplayName', 'Radar Respiration');
             end
 
