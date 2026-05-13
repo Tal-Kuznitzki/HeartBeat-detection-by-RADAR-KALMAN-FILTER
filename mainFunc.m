@@ -37,7 +37,7 @@ b_plot_ALL = false;
 
 IDrange = [51:56] ; %11:12;  
 
-scenarios = ["Apnea"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios = ["Resting","Apnea"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
@@ -301,7 +301,7 @@ end
         %dataFull{indx,sz}.KalmanFilterHrGrid(0); %1 to draw CAF NEW
         
         %dataFull{indx,sz}.OptimizeKalman_Innovation(850,0);
-        dataFull{indx,sz}.OptimizeKalman_NSubSignals(150,false,2);
+        dataFull{indx,sz}.OptimizeKalman_NSubSignals(50,true,2);
         %dataFull{indx,sz}.OptimizeKalman_Innovation_AdaptiveR(850,0);
         dataFull{indx,sz}.MedianHr(); 
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
