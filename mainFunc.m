@@ -35,9 +35,9 @@ end
 b_CLEAR_OLD = false;
 b_plot_ALL = false;
 
-IDrange = [51:56] ; %11:12;  
+IDrange = [52] ; %11:12;  
 
-scenarios = ["Resting","Apnea"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios = ["Apnea"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 

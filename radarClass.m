@@ -2619,7 +2619,7 @@ end        % ---------------------------------------------------------
             fprintf('------------------------------------------------\n');
        end
   %% NEW FUNCTION
-  function PlotHrCovAndBA(obj)
+function PlotHrCovAndBA(obj)
 % PlotHrCovAndBA
 % Creates two figures:
 %   (1) 2x2 subplots: "CovDiag" style plots for:
@@ -2631,140 +2631,171 @@ end        % ---------------------------------------------------------
 % Notes:
 %   - GT is obj.HrGtEst (as requested)
 %   - Vectors are cut to the same length and NaNs are removed consistently.
+%   - Subplots use uniform limits and scaling for accurate visual comparison.
 
     gt = obj.HrGtEst;
-
     sigs = {obj.HrEst, obj.HrEstAfterMedian, obj.HrEstAfterKalman};
     names = {'Raw HR vs GT', 'Median HR vs GT', 'Kalman HR vs GT'};
+    
+    % ===================== PRE-PROCESS DATA & FIND GLOBAL LIMITS =====================
+    cleanA = cell(1,3);
+    cleanB = cell(1,3);
+    
+    globalMinHR = inf;   globalMaxHR = -inf;
+    globalMinMean = inf; globalMaxMean = -inf;
+    globalMinDiff = inf; globalMaxDiff = -inf;
+    
+    for k = 1:3
+        est = sigs{k};
+        a = est(:); b = gt(:);
+        n = min(numel(a), numel(b));
+        a = a(1:n); b = b(1:n);
+        v = isfinite(a) & isfinite(b) & ~isnan(a) & ~isnan(b);
+        a = a(v); b = b(v);
+        
+        cleanA{k} = a;
+        cleanB{k} = b;
+        
+        if numel(a) >= 8
+            % Limits for Figure 1 (CovDiag)
+            globalMinHR = min([globalMinHR; a; b]);
+            globalMaxHR = max([globalMaxHR; a; b]);
+            
+            % Limits for Figure 2 (Bland-Altman)
+            m_val = 0.5*(a + b);
+            d_val = (a - b);
+            globalMinMean = min([globalMinMean; m_val]);
+            globalMaxMean = max([globalMaxMean; m_val]);
+            globalMinDiff = min([globalMinDiff; d_val]);
+            globalMaxDiff = max([globalMaxDiff; d_val]);
+        end
+    end
+    
+    % Calculate padded limits to prevent markers from touching the absolute borders
+    if ~isinf(globalMinHR)
+        padHR = 0.05 * max(1, globalMaxHR - globalMinHR);
+        limHR = [globalMinHR - padHR, globalMaxHR + padHR];
+        
+        padMean = 0.05 * max(1, globalMaxMean - globalMinMean);
+        limMean = [globalMinMean - padMean, globalMaxMean + padMean];
+        
+        padDiff = 0.05 * max(1, globalMaxDiff - globalMinDiff);
+        limDiff = [globalMinDiff - padDiff, globalMaxDiff + padDiff];
+    else
+        limHR = [0 1]; limMean = [0 1]; limDiff = [-1 1]; % Fallback if no valid data
+    end
 
     % ===================== FIGURE 1: CovDiag-style =====================
     figure('Name', sprintf('CovDiag HR vs GT | ID %s | %s', string(obj.ID), string(obj.sceneario)));
-
     for k = 1:3
         subplot(2,2,k);
-
-        est = sigs{k};
-        a = est(:); b = gt(:);
-
-        n = min(numel(a), numel(b));
-        a = a(1:n); b = b(1:n);
-
-        v = isfinite(a) & isfinite(b) & ~isnan(a) & ~isnan(b);
-        a = a(v); b = b(v);
-
+        a = cleanA{k}; 
+        b = cleanB{k};
+        
         if numel(a) < 8
             axis off;
             title([names{k} ' (insufficient data)']);
             continue;
         end
-
+        
         % Scatter
         plot(b, a, '.', 'MarkerSize', 8); hold on; grid on;
         xlabel('GT HR'); ylabel('Est HR');
         title(names{k});
-
-        % y=x reference line
-        mn = min([a; b]);
-        mx = max([a; b]);
-        plot([mn mx], [mn mx], 'k--', 'LineWidth', 1);
-
+        
+        % y=x reference line stretching perfectly across the uniform limits
+        plot(limHR, limHR, 'k--', 'LineWidth', 1);
+        
         % --- Covariance ellipse (1-sigma) in (GT,Est) space ---
-        % Data matrix: columns [GT, Est]
         X = [b, a];
         mu = mean(X, 1);
-        C  = cov(X, 1); % population cov
-
-        % Eigen-decomp
+        C  = cov(X, 1); 
         [V,D] = eig(C);
-        d = diag(D);
-        [d,idx] = sort(d, 'descend');
+        d_eig = diag(D);
+        [d_eig,idx] = sort(d_eig, 'descend');
         V = V(:,idx);
-
-        % 1-sigma ellipse
+        
         t = linspace(0, 2*pi, 200);
         circ = [cos(t); sin(t)];
-        A = V * diag(sqrt(max(d,0)));   % sqrt eigenvalues
+        A = V * diag(sqrt(max(d_eig,0))); 
         ell = (A * circ).';
         ell(:,1) = ell(:,1) + mu(1);
         ell(:,2) = ell(:,2) + mu(2);
-
         plot(ell(:,1), ell(:,2), 'LineWidth', 1.5);
-
+        
         % --- Basic stats annotation ---
         r = corr(a, b);
         diffv = a - b;
         bias = mean(diffv);
         rmse = sqrt(mean(diffv.^2));
-
         txt = sprintf('N=%d  r=%.3f\nbias=%.2f  rmse=%.2f', numel(a), r, bias, rmse);
-        xlim([mn mx]); ylim([mn mx]);
-        text(mn + 0.02*(mx-mn), mx - 0.10*(mx-mn), txt, 'FontSize', 9, 'BackgroundColor', 'w');
+        
+        % Enforce Global Limits
+        xlim(limHR); 
+        ylim(limHR);
+        
+        % Position text relative to uniform limits so it sits in the same spot every time
+        text(limHR(1) + 0.05*(limHR(2)-limHR(1)), ...
+             limHR(2) - 0.15*(limHR(2)-limHR(1)), ...
+             txt, 'FontSize', 9, 'BackgroundColor', 'w');
         hold off;
     end
-
     subplot(2,2,4);
     axis off;
     text(0,0.85, sprintf('ID: %s', string(obj.ID)), 'FontWeight','bold');
     text(0,0.65, sprintf('Scenario: %s', string(obj.sceneario)));
     text(0,0.45, 'CovDiag-style: scatter + y=x + 1σ covariance ellipse');
     text(0,0.25, 'All compared to GT = HrGtEst');
-    text(0,0.05, 'Vectors trimmed to same length; NaNs removed');
+    text(0,0.05, 'Vectors trimmed to same length; Uniform axes');
 
     % ===================== FIGURE 2: Bland-Altman =====================
     figure('Name', sprintf('Bland-Altman HR vs GT | ID %s | %s', string(obj.ID), string(obj.sceneario)));
-
     for k = 1:3
         subplot(2,2,k);
-
-        est = sigs{k};
-        a = est(:); b = gt(:);
-
-        n = min(numel(a), numel(b));
-        a = a(1:n); b = b(1:n);
-
-        v = isfinite(a) & isfinite(b) & ~isnan(a) & ~isnan(b);
-        a = a(v); b = b(v);
-
+        a = cleanA{k}; 
+        b = cleanB{k};
+        
         if numel(a) < 8
             axis off;
             title([names{k} ' (insufficient data)']);
             continue;
         end
-
-        m  = 0.5*(a + b);      % mean
-        d  = (a - b);          % difference (Est - GT)
-        md = mean(d);
-        sd = std(d, 0);
-
+        
+        m_val = 0.5*(a + b);   % mean
+        d_val = (a - b);       % difference (Est - GT)
+        md = mean(d_val);
+        sd = std(d_val, 0);
         loa1 = md - 1.96*sd;
         loa2 = md + 1.96*sd;
-
-        plot(m, d, '.', 'MarkerSize', 8); hold on; grid on;
+        
+        plot(m_val, d_val, '.', 'MarkerSize', 8); hold on; grid on;
         yline(md,  'k-',  'LineWidth', 1.5);
         yline(loa1,'k--', 'LineWidth', 1.0);
         yline(loa2,'k--', 'LineWidth', 1.0);
-
+        
         xlabel('Mean (Est, GT)'); ylabel('Est - GT');
         title(names{k});
-
+        
+        % Enforce Global Limits
+        xlim(limMean); 
+        ylim(limDiff);
+        
         txt = sprintf('N=%d\nmean=%.2f\nLoA=[%.2f, %.2f]', numel(a), md, loa1, loa2);
-        xm = min(m); xM = max(m);
-        ym = min(d); yM = max(d);
-        text(xm + 0.02*(xM-xm), yM - 0.10*(yM-ym), txt, 'FontSize', 9, 'BackgroundColor', 'w');
-
+        
+        % Position text relative to uniform limits
+        text(limMean(1) + 0.05*(limMean(2)-limMean(1)), ...
+             limDiff(2) - 0.15*(limDiff(2)-limDiff(1)), ...
+             txt, 'FontSize', 9, 'BackgroundColor', 'w');
         hold off;
     end
-
     subplot(2,2,4);
     axis off;
     text(0,0.85, sprintf('ID: %s', string(obj.ID)), 'FontWeight','bold');
     text(0,0.65, sprintf('Scenario: %s', string(obj.sceneario)));
     text(0,0.45, 'Bland-Altman: (Est-GT) vs mean, with mean & ±1.96σ');
     text(0,0.25, 'All compared to GT = HrGtEst');
-    text(0,0.05, 'Vectors trimmed to same length; NaNs removed');
-
+    text(0,0.05, 'Vectors trimmed to same length; Uniform axes');
 end
-
         %% Save Figures
        function [] = saveFigures(obj, figHandles, saveDir)
              % Set default directory if not provided
