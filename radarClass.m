@@ -2525,33 +2525,33 @@ end
 
          % Subplot 1
          ax_hr(1) = subplot(3,1,1); hold on; grid on;
-         title(sprintf('HR Comparison: Radar Raw vs GT (Median Fit) - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
+         title(sprintf('HR Comparison: Radar Raw vs GT - ID: %s, Scenario: %s', string(obj.ID), obj.sceneario));
          plot(obj.HrEst, 'b', 'DisplayName', 'Radar Est - no processing');
          plot(obj.CorrGt, 'r--','DisplayName', 'GT(Median&fit)');
          ylabel('Heart Rate (BPM)'); % ADDED
-         xlabel('Beat Index (Approx)'); % ADDED
+         xlabel('Time (s)'); % ADDED
          legend('show', 'Location', 'best');
 
          % Subplot 2
          ax_hr(2) = subplot(3,1,3); hold on; grid on;
-         title('HR after Kalman (time fitted) vs GT (time fitted)');
+         title('HR after Kalman filter vs GT');
           if ~isempty(obj.CorrKalmanHr_on_gt_time)
              plot(obj.CorrKalmanHr_on_gt_time, 'b','DisplayName', 'Radar Est after Kalman(time fitted)');
           end
-         plot(obj.CorrGt, 'r--',  'DisplayName', 'GT(Median&fit)');
+         plot(obj.CorrGt, 'r--',  'DisplayName', 'GT');
          ylabel('Heart Rate (BPM)'); % ADDED
-         xlabel('Time (s) [GT Grid]'); % ADDED
+         xlabel('Time (s)'); % ADDED
          legend('show', 'Location', 'best');
 
          %Subplot 3
          ax_hr(3) = subplot(3,1,2); hold on; grid on;
-         title('HR after Median vs GT (time fitted)');
+         title('HR after Median filter vs GT');
          if ~isempty(obj.CorrMedianHr_on_gt_time)
              plot(obj.CorrMedianHr_on_gt_time, 'b','DisplayName', 'Radar Est After Median');
          end
          plot(obj.CorrGt, 'r--','DisplayName', 'GT(Median&fit)');
          ylabel('Heart Rate (BPM)'); % ADDED
-         xlabel('Time (s) [GT Grid]'); % ADDED
+         xlabel('Time (s)'); % ADDED
          legend('show', 'Location', 'best');
 
          linkaxes(ax_hr, 'xy');
@@ -2622,7 +2622,7 @@ end
     gt = obj.HrGtEst;
 
     sigs = {obj.HrEst, obj.HrEstAfterMedian, obj.HrEstAfterKalman};
-    names = {'Raw HR vs GT', 'Median HR vs GT', 'Kalman HR vs GT'};
+    names = {'Raw HR vs GT', 'Median filter vs GT', 'Kalman filter vs GT'};
 
     % ===================== FIGURE 1: CovDiag-style =====================
     figure('Name', sprintf('CovDiag HR vs GT | ID %s | %s', string(obj.ID), string(obj.sceneario)));

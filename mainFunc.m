@@ -35,9 +35,9 @@ end
 b_CLEAR_OLD = false;
 b_plot_ALL = false;
 
-IDrange = [51:56] ; %11:12;  
+IDrange = [52,54,55,56] ; %11:12;  
 
-scenarios = ["Apnea"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios = ["Resting","TiltUp","Number"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
@@ -317,8 +317,8 @@ end
         dataFull{indx,sz}.timeFitting(); %generates CORRELATED HR
       
          dataFull{indx,sz}.plot_examples();
-        dataFull{indx,sz}.plotRespRates();
-        dataFull{indx,sz}.plotRespSignals();
+        %dataFull{indx,sz}.plotRespRates();
+        %dataFull{indx,sz}.plotRespSignals();
         %%
         % show all results with CorrGt and CorrKalmanHr
         dataFull{indx,sz}.CalcError(dataFull{indx,sz}.CorrKalmanHr_on_gt_time);
