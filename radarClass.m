@@ -1773,7 +1773,7 @@ function [optQ, optR] = OptimizeKalman_Innovation(obj, maxIter, b_plot)
         drawnow;
     end
 end
-function [optQ, optR, Rk] = OptimizeKalman_Innovation_AdaptiveR(obj, maxIter, b_plot)
+function [optQ, optR, Rk, hist_Q, hist_R, hist_NIS] = OptimizeKalman_Innovation_AdaptiveR(obj, maxIter, b_plot)
 % OptimizeKalman_Innovation_AdaptiveR
 %
 % Optimizes Q using innovation consistency, while using adaptive R(k)
@@ -2075,131 +2075,113 @@ function [optQ, optR, Rk] = OptimizeKalman_Innovation_AdaptiveR(obj, maxIter, b_
     end
 
 end
-function [optQ_parts, optR_parts, RkFull] = OptimizeKalman_NSubSignals(obj, maxIter, b_plot,nSignals)
-% OptimizeKalman_4SubSignals
+function [optQ_parts, optR_parts, RkFull, histQ_parts, histNIS_parts] = OptimizeKalman_NSubSignals(obj, maxIter, b_plot, nSignals)
+% OptimizeKalman_NSubSignals
 %
-% Splits the HR signal into 4 contiguous sub-signals, runs
+% Splits the HR signal into N contiguous sub-signals, runs
 % OptimizeKalman_Innovation_AdaptiveR on each sub-signal separately,
 % and combines the filtered outputs back into one full signal.
 %
-% This is useful when different parts of the HR estimate have different
-% noise / dynamics, so each segment gets its own optimized Q.
-%
-% Saves only:
-%
-%   obj.HrEstAfterKalman
-%
-% Inputs:
-%   maxIter - number of innovation tuning iterations per sub-signal
-%   b_plot  - whether to plot diagnostics for each sub-signal
-%
-% Outputs:
-%   optQ_parts - 4x1 optimized Q values, one per sub-signal
-%   optR_parts - 4x1 optimized base R values, one per sub-signal
-%   RkFull     - full-length adaptive R multiplier, stitched from parts
-
+% Saves only: obj.HrEstAfterKalman
     if nargin < 2 || isempty(maxIter)
         maxIter = 15;
     end
-
     if nargin < 3 || isempty(b_plot)
         b_plot = false;
     end
-     if nargin < 4 || isempty(nSignals)
+    if nargin < 4 || isempty(nSignals)
         nSignals = 4;
     end
+    
     nParts = nSignals;
-
+    
     % ------------------------------------------------------------
-    % 1. Choose full measurement signal, same logic as the inner function
+    % 1. Choose full measurement signal
     % ------------------------------------------------------------
     if ~isempty(obj.HrEstAfterMedian)
         measFull = obj.HrEstAfterMedian(:);
     else
         measFull = obj.HrEst(:);
     end
-
+    
     if isempty(measFull)
         obj.HrEstAfterKalman = [];
         optQ_parts = NaN(nParts, 1);
         optR_parts = NaN(nParts, 1);
         RkFull = [];
+        histQ_parts = {};
+        histNIS_parts = {};
         return;
     end
-
+    
     % Raw HR is used by the inner function for spike detection.
     if ~isempty(obj.HrEst)
         hrRawFull = obj.HrEst(:);
     else
         hrRawFull = measFull;
     end
-
+    
     % Match lengths
     Nfull = min(numel(measFull), numel(hrRawFull));
     measFull = measFull(1:Nfull);
     hrRawFull = hrRawFull(1:Nfull);
-
+    
     % Save original object fields so we can restore them later
     origHrEst = obj.HrEst;
     origHrEstAfterMedian = obj.HrEstAfterMedian;
     origHrEstAfterKalman = obj.HrEstAfterKalman;
-
+    
     % Output containers
     xhatFull = nan(Nfull, 1);
     RkFull = nan(Nfull, 1);
-
     optQ_parts = NaN(nParts, 1);
     optR_parts = NaN(nParts, 1);
-
+    
+    % History containers
+    histQ_parts = cell(nParts, 1);
+    histR_parts = cell(nParts, 1);
+    histNIS_parts = cell(nParts, 1);
     % ------------------------------------------------------------
-    % 2. Build 4 contiguous index ranges
+    % 2. Build contiguous index ranges
     % ------------------------------------------------------------
     edges = round(linspace(1, Nfull + 1, nParts + 1));
-
     fprintf('--- Running Kalman optimization on %d sub-signals ---\n', nParts);
-
     % ------------------------------------------------------------
-    % 3. Run existing optimizer on each sub-signal
+    % 3. Run optimizer on each sub-signal (FIXED LOOP)
     % ------------------------------------------------------------
     for iPart = 1:nParts
-
         idxStart = edges(iPart);
         idxEnd   = edges(iPart + 1) - 1;
-
         if idxEnd < idxStart
             continue;
         end
-
         idx = idxStart:idxEnd;
-
-        fprintf('\n=== Sub-signal %d/%d | samples %d:%d ===\n', ...
-            iPart, nParts, idxStart, idxEnd);
-
-        % Temporarily replace object signals with this segment
+        fprintf('\n=== Sub-signal %d/%d | samples %d:%d ===\n', iPart, nParts, idxStart, idxEnd);
+        
+        % Temporarily replace object signals with this specific segment
         obj.HrEst = hrRawFull(idx);
-
         if ~isempty(origHrEstAfterMedian)
             obj.HrEstAfterMedian = measFull(idx);
         else
             obj.HrEstAfterMedian = [];
         end
-
         obj.HrEstAfterKalman = [];
-
-        % Run your existing function on the segment
-        [optQ_i, optR_i, Rk_i] = obj.OptimizeKalman_Innovation_AdaptiveR(maxIter, b_plot);
-
-        % Store optimized parameters
+        
+        % Run the optimizer on this segment (Note: inner b_plot is forced to false)
+        [optQ_i, optR_i, Rk_i, hQ_i, hR_i, hNIS_i] = obj.OptimizeKalman_Innovation_AdaptiveR(maxIter, false);
+        
+        % Store optimized parameters and history
         optQ_parts(iPart) = optQ_i;
         optR_parts(iPart) = optR_i;
-
+        histQ_parts{iPart} = hQ_i;
+        histR_parts{iPart} = hR_i;
+        histNIS_parts{iPart} = hNIS_i;
+        
         % Collect filtered segment
         xhat_i = obj.HrEstAfterKalman(:);
-
-        % Safety: match length in case valid/invalid handling changes length
         nCopy = min(numel(idx), numel(xhat_i));
         xhatFull(idx(1:nCopy)) = xhat_i(1:nCopy);
-
+        
         % Collect Rk segment
         if ~isempty(Rk_i)
             Rk_i = Rk_i(:);
@@ -2207,52 +2189,83 @@ function [optQ_parts, optR_parts, RkFull] = OptimizeKalman_NSubSignals(obj, maxI
             RkFull(idx(1:nCopyR)) = Rk_i(1:nCopyR);
         end
     end
-
     % ------------------------------------------------------------
     % 4. Restore original object signals
     % ------------------------------------------------------------
     obj.HrEst = origHrEst;
     obj.HrEstAfterMedian = origHrEstAfterMedian;
-
+    
     % Save only final combined filtered signal
     obj.HrEstAfterKalman = xhatFull;
-
+    
     % If something went wrong and all output is NaN, restore previous result
     if all(isnan(xhatFull))
-        warning('All 4-part Kalman outputs are NaN. Restoring previous HrEstAfterKalman.');
+        warning('All Kalman outputs are NaN. Restoring previous HrEstAfterKalman.');
         obj.HrEstAfterKalman = origHrEstAfterKalman;
     end
-
     % ------------------------------------------------------------
-    % 5. Optional summary plot
+    % 5. Dashboard Summary Plot
     % ------------------------------------------------------------
     if b_plot
-        figure('Name', '4-Part Kalman Combined Result', 'Color', 'w');
-
-        subplot(3,1,1);
-        plot(measFull, 'LineWidth', 1);
-        grid on;
-        title('Input HR Measurement');
-        xlabel('Sample');
-        ylabel('HR [BPM]');
-
-        subplot(3,1,2);
-        plot(obj.HrEstAfterKalman, 'LineWidth', 1.5);
-        grid on;
-        title('Combined 4-Part Kalman Output');
-        xlabel('Sample');
-        ylabel('HR [BPM]');
-
-        subplot(3,1,3);
-        stairs(RkFull, 'LineWidth', 1);
-        grid on;
-        title('Combined Adaptive R(k) Multiplier');
-        xlabel('Sample');
-        ylabel('R multiplier');
+        % Format strings safely
+        scenStr = char(obj.sceneario);
+        patID = obj.ID;
+        
+        % Add ID and Scenario to Figure Window
+        figName = sprintf('Adaptive Kalman: Multi-Segment Optimization [%s | %s]', patID, scenStr);
+        figure('Name', figName, 'Color', 'w', 'Position', [100 100 1200 800]);
+        colors = lines(nParts); 
+        t = 1:Nfull;
+        
+        % --- Subplot 1: Stitched HR Tracking ---
+        subplot(2, 2, [1 2]); 
+        hold on; grid on;
+        plot(t, measFull, 'Color', [0.7 0.7 0.7], 'LineWidth', 1, 'DisplayName', 'Input HR');
+        plot(t, xhatFull, 'b', 'LineWidth', 1.5, 'DisplayName', 'Optimized Kalman HR');
+        for i = 1:nParts
+            xline(edges(i), '--k', 'HandleVisibility', 'off');
+        end
+        ylabel('Heart Rate [BPM]');
+        
+        % Add ID and Scenario to Main Plot Title (using 'none' interpreter to avoid subscripting underscores)
+        titleStr = sprintf('Segmented HR Tracking (%d Sub-Signals) | Patient: %s | Scenario: %s', nParts, patID, scenStr);
+        title(titleStr, 'Interpreter', 'none');
+        legend('Location', 'best');
+        
+        % --- Subplot 2: Q Convergence per Segment ---
+        subplot(2, 2, 3);
+        hold on; grid on;
+        for iPart = 1:nParts
+            if ~isempty(histQ_parts{iPart})
+                iter_count = 1:length(histQ_parts{iPart});
+                plot(iter_count, histQ_parts{iPart}, '-o', 'LineWidth', 1.5, ...
+                    'Color', colors(iPart,:), 'DisplayName', sprintf('Segment %d', iPart));
+            end
+        end
+        set(gca, 'YScale', 'log');
+        xlabel('Iteration');
+        ylabel('Process Noise ($Q$)');
+        title('Q Optimization Path');
+        legend('Location', 'best');
+        
+        % --- Subplot 3: NIS Convergence per Segment ---
+        subplot(2, 2, 4);
+        hold on; grid on;
+        for iPart = 1:nParts
+            if ~isempty(histNIS_parts{iPart})
+                iter_count = 1:length(histNIS_parts{iPart});
+                plot(iter_count, histNIS_parts{iPart}, '-s', 'LineWidth', 1.5, ...
+                    'Color', colors(iPart,:), 'DisplayName', sprintf('Segment %d', iPart));
+            end
+        end
+        yline(1.0, '--k', 'Target NIS = 1', 'LineWidth', 1.5, 'HandleVisibility', 'off');
+        ylim([0 5]); 
+        xlabel('Iteration');
+        ylabel('Median NIS');
+        title('Innovation Consistency (Target = 1.0)');
     end
-
-end
-%% PLOTS        
+end        % ---------------------------------------------------------
+ %% PLOTS        
         % ---------------------------------------------------------
         % Plotting Functions
         % ---------------------------------------------------------
@@ -2606,7 +2619,7 @@ end
             fprintf('------------------------------------------------\n');
        end
   %% NEW FUNCTION
-  function PlotHrCovAndBA(obj)
+function PlotHrCovAndBA(obj)
 % PlotHrCovAndBA
 % Creates two figures:
 %   (1) 2x2 subplots: "CovDiag" style plots for:
@@ -2618,140 +2631,172 @@ end
 % Notes:
 %   - GT is obj.HrGtEst (as requested)
 %   - Vectors are cut to the same length and NaNs are removed consistently.
+%   - Subplots use uniform limits and scaling for accurate visual comparison.
 
     gt = obj.HrGtEst;
-
     sigs = {obj.HrEst, obj.HrEstAfterMedian, obj.HrEstAfterKalman};
     names = {'Raw HR vs GT', 'Median filter vs GT', 'Kalman filter vs GT'};
+    
+    % ===================== PRE-PROCESS DATA & FIND GLOBAL LIMITS =====================
+    cleanA = cell(1,3);
+    cleanB = cell(1,3);
+    
+    globalMinHR = inf;   globalMaxHR = -inf;
+    globalMinMean = inf; globalMaxMean = -inf;
+    globalMinDiff = inf; globalMaxDiff = -inf;
+    
+    for k = 1:3
+        est = sigs{k};
+        a = est(:); b = gt(:);
+        n = min(numel(a), numel(b));
+        a = a(1:n); b = b(1:n);
+        v = isfinite(a) & isfinite(b) & ~isnan(a) & ~isnan(b);
+        a = a(v); b = b(v);
+        
+        cleanA{k} = a;
+        cleanB{k} = b;
+        
+        if numel(a) >= 8
+            % Limits for Figure 1 (CovDiag)
+            globalMinHR = min([globalMinHR; a; b]);
+            globalMaxHR = max([globalMaxHR; a; b]);
+            
+            % Limits for Figure 2 (Bland-Altman)
+            m_val = 0.5*(a + b);
+            d_val = (a - b);
+            globalMinMean = min([globalMinMean; m_val]);
+            globalMaxMean = max([globalMaxMean; m_val]);
+            globalMinDiff = min([globalMinDiff; d_val]);
+            globalMaxDiff = max([globalMaxDiff; d_val]);
+        end
+    end
+    
+    % Calculate padded limits to prevent markers from touching the absolute borders
+    if ~isinf(globalMinHR)
+        padHR = 0.05 * max(1, globalMaxHR - globalMinHR);
+        limHR = [globalMinHR - padHR, globalMaxHR + padHR];
+        
+        padMean = 0.05 * max(1, globalMaxMean - globalMinMean);
+        limMean = [globalMinMean - padMean, globalMaxMean + padMean];
+        
+        padDiff = 0.05 * max(1, globalMaxDiff - globalMinDiff);
+        limDiff = [globalMinDiff - padDiff, globalMaxDiff + padDiff];
+    else
+        limHR = [0 1]; limMean = [0 1]; limDiff = [-1 1]; % Fallback if no valid data
+    end
+
 
     % ===================== FIGURE 1: CovDiag-style =====================
     figure('Name', sprintf('CovDiag HR vs GT | ID %s | %s', string(obj.ID), string(obj.sceneario)));
-
     for k = 1:3
         subplot(2,2,k);
-
-        est = sigs{k};
-        a = est(:); b = gt(:);
-
-        n = min(numel(a), numel(b));
-        a = a(1:n); b = b(1:n);
-
-        v = isfinite(a) & isfinite(b) & ~isnan(a) & ~isnan(b);
-        a = a(v); b = b(v);
-
+        a = cleanA{k}; 
+        b = cleanB{k};
+        
         if numel(a) < 8
             axis off;
             title([names{k} ' (insufficient data)']);
             continue;
         end
-
+        
         % Scatter
         plot(b, a, '.', 'MarkerSize', 8); hold on; grid on;
         xlabel('GT HR'); ylabel('Est HR');
         title(names{k});
-
-        % y=x reference line
-        mn = min([a; b]);
-        mx = max([a; b]);
-        plot([mn mx], [mn mx], 'k--', 'LineWidth', 1);
-
+        
+        % y=x reference line stretching perfectly across the uniform limits
+        plot(limHR, limHR, 'k--', 'LineWidth', 1);
+        
         % --- Covariance ellipse (1-sigma) in (GT,Est) space ---
-        % Data matrix: columns [GT, Est]
         X = [b, a];
         mu = mean(X, 1);
-        C  = cov(X, 1); % population cov
-
-        % Eigen-decomp
+        C  = cov(X, 1); 
         [V,D] = eig(C);
-        d = diag(D);
-        [d,idx] = sort(d, 'descend');
+        d_eig = diag(D);
+        [d_eig,idx] = sort(d_eig, 'descend');
         V = V(:,idx);
-
-        % 1-sigma ellipse
+        
         t = linspace(0, 2*pi, 200);
         circ = [cos(t); sin(t)];
-        A = V * diag(sqrt(max(d,0)));   % sqrt eigenvalues
+        A = V * diag(sqrt(max(d_eig,0))); 
         ell = (A * circ).';
         ell(:,1) = ell(:,1) + mu(1);
         ell(:,2) = ell(:,2) + mu(2);
-
         plot(ell(:,1), ell(:,2), 'LineWidth', 1.5);
-
+        
         % --- Basic stats annotation ---
         r = corr(a, b);
         diffv = a - b;
         bias = mean(diffv);
         rmse = sqrt(mean(diffv.^2));
-
         txt = sprintf('N=%d  r=%.3f\nbias=%.2f  rmse=%.2f', numel(a), r, bias, rmse);
-        xlim([mn mx]); ylim([mn mx]);
-        text(mn + 0.02*(mx-mn), mx - 0.10*(mx-mn), txt, 'FontSize', 9, 'BackgroundColor', 'w');
+        
+        % Enforce Global Limits
+        xlim(limHR); 
+        ylim(limHR);
+        
+        % Position text relative to uniform limits so it sits in the same spot every time
+        text(limHR(1) + 0.05*(limHR(2)-limHR(1)), ...
+             limHR(2) - 0.15*(limHR(2)-limHR(1)), ...
+             txt, 'FontSize', 9, 'BackgroundColor', 'w');
         hold off;
     end
-
     subplot(2,2,4);
     axis off;
     text(0,0.85, sprintf('ID: %s', string(obj.ID)), 'FontWeight','bold');
     text(0,0.65, sprintf('Scenario: %s', string(obj.sceneario)));
     text(0,0.45, 'CovDiag-style: scatter + y=x + 1σ covariance ellipse');
     text(0,0.25, 'All compared to GT = HrGtEst');
-    text(0,0.05, 'Vectors trimmed to same length; NaNs removed');
+    text(0,0.05, 'Vectors trimmed to same length; Uniform axes');
 
     % ===================== FIGURE 2: Bland-Altman =====================
     figure('Name', sprintf('Bland-Altman HR vs GT | ID %s | %s', string(obj.ID), string(obj.sceneario)));
-
     for k = 1:3
         subplot(2,2,k);
-
-        est = sigs{k};
-        a = est(:); b = gt(:);
-
-        n = min(numel(a), numel(b));
-        a = a(1:n); b = b(1:n);
-
-        v = isfinite(a) & isfinite(b) & ~isnan(a) & ~isnan(b);
-        a = a(v); b = b(v);
-
+        a = cleanA{k}; 
+        b = cleanB{k};
+        
         if numel(a) < 8
             axis off;
             title([names{k} ' (insufficient data)']);
             continue;
         end
-
-        m  = 0.5*(a + b);      % mean
-        d  = (a - b);          % difference (Est - GT)
-        md = mean(d);
-        sd = std(d, 0);
-
+        
+        m_val = 0.5*(a + b);   % mean
+        d_val = (a - b);       % difference (Est - GT)
+        md = mean(d_val);
+        sd = std(d_val, 0);
         loa1 = md - 1.96*sd;
         loa2 = md + 1.96*sd;
-
-        plot(m, d, '.', 'MarkerSize', 8); hold on; grid on;
+        
+        plot(m_val, d_val, '.', 'MarkerSize', 8); hold on; grid on;
         yline(md,  'k-',  'LineWidth', 1.5);
         yline(loa1,'k--', 'LineWidth', 1.0);
         yline(loa2,'k--', 'LineWidth', 1.0);
-
+        
         xlabel('Mean (Est, GT)'); ylabel('Est - GT');
         title(names{k});
-
+        
+        % Enforce Global Limits
+        xlim(limMean); 
+        ylim(limDiff);
+        
         txt = sprintf('N=%d\nmean=%.2f\nLoA=[%.2f, %.2f]', numel(a), md, loa1, loa2);
-        xm = min(m); xM = max(m);
-        ym = min(d); yM = max(d);
-        text(xm + 0.02*(xM-xm), yM - 0.10*(yM-ym), txt, 'FontSize', 9, 'BackgroundColor', 'w');
-
+        
+        % Position text relative to uniform limits
+        text(limMean(1) + 0.05*(limMean(2)-limMean(1)), ...
+             limDiff(2) - 0.15*(limDiff(2)-limDiff(1)), ...
+             txt, 'FontSize', 9, 'BackgroundColor', 'w');
         hold off;
     end
-
     subplot(2,2,4);
     axis off;
     text(0,0.85, sprintf('ID: %s', string(obj.ID)), 'FontWeight','bold');
     text(0,0.65, sprintf('Scenario: %s', string(obj.sceneario)));
     text(0,0.45, 'Bland-Altman: (Est-GT) vs mean, with mean & ±1.96σ');
     text(0,0.25, 'All compared to GT = HrGtEst');
-    text(0,0.05, 'Vectors trimmed to same length; NaNs removed');
-
+    text(0,0.05, 'Vectors trimmed to same length; Uniform axes');
 end
-
         %% Save Figures
        function [] = saveFigures(obj, figHandles, saveDir)
              % Set default directory if not provided

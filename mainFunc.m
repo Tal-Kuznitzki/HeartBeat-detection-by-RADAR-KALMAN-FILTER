@@ -35,6 +35,7 @@ end
 b_CLEAR_OLD = false;
 b_plot_ALL = false;
 
+
 IDrange = [52,54,55,56] ; %11:12;  
 
 scenarios = ["Resting","TiltUp","Number"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
@@ -301,7 +302,7 @@ end
         %dataFull{indx,sz}.KalmanFilterHrGrid(0); %1 to draw CAF NEW
         
         %dataFull{indx,sz}.OptimizeKalman_Innovation(850,0);
-        dataFull{indx,sz}.OptimizeKalman_NSubSignals(150,false,2);
+        dataFull{indx,sz}.OptimizeKalman_NSubSignals(50,true,2);
         %dataFull{indx,sz}.OptimizeKalman_Innovation_AdaptiveR(850,0);
         dataFull{indx,sz}.MedianHr(); 
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
