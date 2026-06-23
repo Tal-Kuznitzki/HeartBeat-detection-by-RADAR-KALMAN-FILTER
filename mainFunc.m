@@ -34,11 +34,11 @@ end
 
 b_CLEAR_OLD = false;
 b_plot_ALL = false;
+b_plot =0;
 
+IDrange = [27,51:56] ; %11:12;  
 
-IDrange = [52,54,55,56] ; %11:12;  
-
-scenarios = ["Resting","TiltUp","Number"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios = ["Resting","Apnea"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
@@ -287,22 +287,10 @@ end
         
         % based on  HrEst, HrGtEst 
         % generates HrEstAfterMedian and HrGtEstAfterMedian
-        % after median filter on each.
+        % after or before median filter on each.
 
-
-        % % [Q,R] = dataFull{indx,sz}.ProduceKalmanCoeff(); 
-        % Q
-        % R
-        % [q_auto, r_auto] = dataFull{indx,sz}.EstimateKalmanCoeffs('BiState');
-        % % Apply them
-        % q_auto
-        % r_auto
-        
-        %dataFull{indx,sz}.kalmanFilterBeats_nH(q_auto,r_auto) 
-        %dataFull{indx,sz}.KalmanFilterHrGrid(0); %1 to draw CAF NEW
-        
-        %dataFull{indx,sz}.OptimizeKalman_Innovation(850,0);
-        dataFull{indx,sz}.OptimizeKalman_NSubSignals(50,true,2);
+       
+        dataFull{indx,sz}.OptimizeKalman_NSubSignals(50,b_plot,2);
         %dataFull{indx,sz}.OptimizeKalman_Innovation_AdaptiveR(850,0);
         dataFull{indx,sz}.MedianHr(); 
         %dataFull{indx,sz}.KalmanSmooth_BiDir();
@@ -316,48 +304,27 @@ end
         %[medDelay, kalDelay] = dataFull{indx,sz}.FindMechanicalDelay();
 
         dataFull{indx,sz}.timeFitting(); %generates CORRELATED HR
-      
-         dataFull{indx,sz}.plot_examples();
-        %dataFull{indx,sz}.plotRespRates();
-        %dataFull{indx,sz}.plotRespSignals();
-        %%
-        % show all results with CorrGt and CorrKalmanHr
+        %% show all results with CorrGt and CorrKalmanHr
+
+        dataFull{indx,sz}.plot_examples();
+
+        dataFull{indx,sz}.plotRespRates();
+        dataFull{indx,sz}.plotRespSignals();
+        
         dataFull{indx,sz}.CalcError(dataFull{indx,sz}.CorrKalmanHr_on_gt_time);
         dataFull{indx,sz}.PlotHrCovAndBA();
-        % % dataFull{indx,sz}.PlotAll(true, saveBaseDir, ...
-        % %    'HR after Kalman & time fit',...
-        % %     dataFull{indx,sz}.CorrKalmanHr_on_gt_time,...
-        % %     dataFull{indx,sz}.HrPeaksAfterKalman,...
-        % %     dataFull{indx,sz}.corrtime,... %time vector after fitting
-        % %     'plot_RrSignals',false, ...
-        % %     'plot_RrRates',false);
+       
 
 
 
    
        statisticsAPMed.updateTable...
        (dataFull{indx,sz}.CorrKalmanHr_on_gt_time,dataFull{indx,sz}.CorrGt,indx,sz); 
-       % for q= 0.5:0.25:15
-       %   for p = 0.5:0.25:15
-       %      dataFull{indx,sz}.KalmanFilterBeats(q,p);
-       %      kalman=dataFull{indx,sz}.HrEstAfterKalman(:);
-       %      gt= dataFull{indx,sz}.HrGtEst(:);
-       %      maxlen= min(length(kalman),length(gt));
-       %      mMseGrid(q*4-1, p*4-1,indx) = rmse(kalman(1:maxlen),gt(1:maxlen));
-       % 
-       %   end
+       
      end
 end
    
-% %% CAF on different values
-% [N,M,I] = size(mMseGrid);
-% A2 = reshape(mMseGrid, N*M, I);   % each column = one (N,M) page
-% [minVal, linIdx] = min(A2, [], 1);
-% [rowIdx, colIdx] = ind2sub([N, M], linIdx);
 
-
-
-%%
 
 
 %% 8. Save Results

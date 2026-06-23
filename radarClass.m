@@ -1511,7 +1511,7 @@ function [delay_sec_normal,sign]= FindMechDelay(obj)
 
     if (delay_sec_normal>0)
         sign=1;
-    elseif (delay_sec_normal<0)
+    else %if (delay_sec_normal<0)
         sign=-1;
     end
 
