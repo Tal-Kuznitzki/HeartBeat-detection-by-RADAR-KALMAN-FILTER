@@ -36,9 +36,10 @@ b_CLEAR_OLD = false;
 b_plot_ALL = false;
 b_plot =0;
 
-IDrange = [27,51:56] ; %11:12;  
+IDrange = [1:30,51:56] ; %11:12;  
 
-scenarios = ["Resting","Apnea"]; %["Resting","Valsalva","Apnea","TiltDown","TiltUp"]
+scenarios = ["Resting","Valsalva","Apnea","TiltDown","TiltUp","Number"];
+%["Resting","Valsalva","Apnea","TiltDown","TiltUp","Number"]
 
 ECG_CHANNEL = [2 2 2 2 2 1 2 2 2 2 2 2 2 2 1 2 2 2 2 2 1 1 2 2 2 2 2 2 2 2];
 path = 'project_data'; 
@@ -264,12 +265,8 @@ end
 
             filteringTime = toc;         
             dataFull{indx,sz}.NormalizeHrSignal(1.0);
-
-            %dataFull{indx,sz}.kalmanSmoothRadarDist();
-            
-           
-    
         end
+        
         dataFull{indx,sz}.FindPeaks(); 
         % generates peaks: HrPeaks, RrPeaks , ecgPeaks ,Rrpeaks_gt
         % based solely on findPeaks() and pan_tompkin 
